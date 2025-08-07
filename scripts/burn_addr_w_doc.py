@@ -1,3 +1,23 @@
+"""
+ONLY burns a new I2C address to the ES32-s3 board.
+
+The script connects to the ESP32-S3 via serial, prompts the user for the
+current and new I2C addresses, and sends the appropriate commands to change
+the address. ** Currently only tested with ESP32-S3, hasn't been verified 
+with the main microcontroller. **
+
+Author: Paras + Vouk  •  Date: 2025-8-6
+Project: Motor-Controller Station  •  Language: Python 3.12
+
+Usage-host must have PlatformIO CLI and pyserial installed.:
+   $ python3 burn_addr.py
+
+** IMPORTANT*******************************************************
+The code follows documentation guidelines (§SWE-061 / PEP 257
+Google format) so every public function and module begins with a clear
+72-char summary line, then a blank line, then extended detail.
+*******************************************************************
+"""
 # ──────────────────────────────────────────────────────────────────────────
 # Code Structure Diagram
 # -------------------------------------------------------------------------
@@ -31,27 +51,6 @@
 #   │ if __name__ == "__main__":  │
 #   └─────────────────────────────┘
 # -------------------------------------------------------------------------
-
-"""
-ONLY burns a new I2C address to the ES32-s3 board.
-
-The script connects to the ESP32-S3 via serial, prompts the user for the
-current and new I2C addresses, and sends the appropriate commands to change
-the address. ** Currently only tested with ESP32-S3, hasn't been verified 
-with the main microcontroller. **
-
-Author: Paras + Vouk  •  Date: 2025-8-6
-Project: Motor-Controller Station  •  Language: Python 3.12
-
-Usage-host must have PlatformIO CLI and pyserial installed.:
-   $ python3 burn_addr.py
-
-** IMPORTANT*******************************************************
-The code follows NASA-style documentation guidelines (§SWE-061 / PEP 257
-Google format) so every public function and module begins with a clear
-72-char summary line, then a blank line, then extended detail.
-*******************************************************************
-"""
 from __future__ import annotations
 
 import json
