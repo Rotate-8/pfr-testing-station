@@ -1,6 +1,6 @@
 import sys
 import os
-from open_serial_monitor import run_command, find_brain_board_port, monitor_serial_output
+from open_serial_monitor import run_command, find_brain_board_port, monitor_serial_output_and_prompt_operations
 
 COLOR_RED = '\033[91m'
 COLOR_YELLOW = '\033[93m'
@@ -135,7 +135,7 @@ def upload_prebuilt_binary(port, project_path, build_env_name):
         "--port", port,
         "--baud", str(UPLOAD_BAUD_RATE),
         "--before", "default_reset",
-        "--after", "hard_reset",
+        "--after", "no_reset" # no reset in order to be consistent across boards that can and cant be remotely reset
         "write_flash",
         "-z",
         "--flash_mode", str(FLASH_MODE),
@@ -147,7 +147,6 @@ def upload_prebuilt_binary(port, project_path, build_env_name):
         FIRMWARE_OFFSET, firmware_bin_path
     ]
     run_command(command, capture_output=False)
-    print(f"--- Direct flash to {port} completed ---")
 
 
 def main():
@@ -156,6 +155,8 @@ def main():
     monitoring.
     """ 
     try:
+        instant_exit = False
+
         if not os.path.isdir(PIO_PROJECT_PATH):
             raise ValueError(f"Error: Project path '{PIO_PROJECT_PATH}' does not exist or is not a directory. Please check and/or clone directory again.", file=sys.stderr)
         # 1. Find the ESP32-brain board's serial port
@@ -175,18 +176,20 @@ def main():
         # 3. Upload the project
         upload_project(brain_board_port, PIO_PROJECT_PATH, PIO_BUILD_ENV_NAME)
 
+        input("Reset the board and press enter to continue: ")
+        
         # 5. Monitor the device
-        monitor_serial_output(brain_board_port)
+        monitor_serial_output_and_prompt_operations(brain_board_port)
 
         print("\nAll operations completed successfully.")
 
     except KeyboardInterrupt:
-        print("\nOperation cancelled by user (Ctrl+C). Exiting gracefully.", file=sys.stderr)
-        sys.exit(0)
+        instant_exit = True
     except Exception as e:
         print(f"\nError occurred: {COLOR_RED}{e}{COLOR_RESET}", file=sys.stderr)
     finally:
-        input("Press any key to return to menu: ")
+        if not instant_exit:
+            input("Press any key to return to menu: ")
         sys.exit(1)
 
 if __name__ == "__main__":
