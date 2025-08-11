@@ -3,8 +3,7 @@ ONLY burns a new I2C address to the ES32-s3 board.
 
 The script connects to the ESP32-S3 via serial, prompts the user for the
 current and new I2C addresses, and sends the appropriate commands to change
-the address. ** Currently only tested with ESP32-S3, hasn't been verified 
-with the main microcontroller. **
+the address. 
 
 Author: Paras + Vouk  •  Date: 2025-8-6
 Project: Motor-Controller Station  •  Language: Python 3.12
