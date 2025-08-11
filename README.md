@@ -29,14 +29,14 @@ A Raspberry Pi–powered test station for automating ESP32-S3 firmware builds, f
 	Follow the [Raspberry Pi bringup steps](https://app.clickup.com/9014308583/v/dc/8cmpvq7-594/8cmpvq7-3234).
 
 2. **Install ROS packages:**  
-	In `/r8/pfr-software`:
 	```bash
+    cd /r8/pfr-sofware
 	packages-up-to pfr_control
 	```
 
-3. **Clone pfr-rust-nodes repository:**  
-	In `/r8`:
+3. **Clone pfr-rust-nodes repository:**
 	```bash
+    cd /r8
 	git clone https://github.com/Rotate-8/pfr-rust-nodes.git
 	cd pfr-rust-nodes
 	git checkout version/0.4.0
