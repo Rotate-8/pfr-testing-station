@@ -48,7 +48,13 @@ Google format) so every public function and module begins with a clear
 #   └─────────────────────────────┘
 # -------------------------------------------------------------------------
 
-#no imports
+import serial
+import time
+import json
+import subprocess
+from serial.tools import list_ports
+import sys
+import os
 
 # ──────────────────────────────────────────────────────────────────────────
 # Constants & configuration
