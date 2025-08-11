@@ -28,16 +28,16 @@ Google format) so every public function and module begins with a clear
 #   └───────┬───────┘
 #           │
 #           ▼
-#   ┌─────────────────────────────┐
-#   │      Helper Functions       │
-#   │ ──────────────────────────  │
-#   │ upload_project              │
-#   │ find_files_in_incomplete_directory
-#   │ find_files_in_incomplete_directory_helper
-#   │ upload_prebuilt_binary      │
-#   └───────┬─────────────────────┘
-#           │
-#           ▼
+#   ┌─────────────────────────────────────────────────────────────┐
+#   │                   Helper Functions                         │
+#   │ ────────────────────────────────────────────────────────── │
+#   │  upload_project                                            │
+#   │  find_files_in_incomplete_directory                        │
+#   │  find_files_in_incomplete_directory_helper                 │
+#   │  upload_prebuilt_binary                                    │
+#   └───────────────┬────────────────────────────────────────────┘
+#                   │
+#                   ▼
 #   ┌─────────────────────────────┐
 #   │     Main Program Flow       │
 #   │ ──────────────────────────  │
