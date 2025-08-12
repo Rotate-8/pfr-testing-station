@@ -80,7 +80,9 @@ def count_unshared_characters(str1, str2):
             unshared_count += 1
     return unshared_count + abs(len(str1) - len(str2))
 
+
 def send_and_confirm_command(process, output_queue, setting, val):
+    print(f"Setting {setting} to {val}")
     process.stdin.write(f"settings {setting} {val}\n")
     if not read_until_message(output_queue, "set to", 0.2):
         process.stdin.write("settings help\n")
@@ -113,7 +115,6 @@ def reset_settings(process, output_queue, zenoh_endpoint_ip=None):
 def setup_settings(process, output_queue):    
     for command in CMDS.keys():
         val = CMDS[command][0]
-        print(f"Setting {command} to {val}")
         send_and_confirm_command(process, output_queue, command, val)
 
 def connect_to_bluetooth_cli(process, output_queue):
@@ -195,7 +196,6 @@ def connect_to_zenoh_cli(output_queue):
         print("Connected using zenoh cli\n")
         return True
     else:
-        print("Not connected...")
         return False
             
 # This is necessary because pfr_ble_cli has a phantom motor_0_ble that freezes it, 
@@ -249,12 +249,15 @@ def loop_connection_attempts(mode):
                 process, output_queue = start_process_and_output_thread(ble_cmd, rust_project_directory)
             print("Bluetooth connected successfully, adjusting settings")
     elif mode == "zenoh":
+        max_tries = 3
         process, output_queue = start_process_and_output_thread(zenoh_cmd, pfr_software_directory)
         tries = 1
-        while not connect_to_zenoh_cli(output_queue) and tries < 3:
+        while not connect_to_zenoh_cli(output_queue) and tries < max_tries + 1:
             tries += 1
-            print(f"Attempt {tries} to connect to motor controller CLI over zenoh...")
-            process, output_queue = start_process_and_output_thread(ble_cmd, pfr_software_directory)
+            if tries == max_tries + 1:
+                raise Exception("Unable to connect. Make sure motor controller is connected over zenoh.")
+            print(f"\nRetrying connection to motor controller CLI over zenoh {tries - 1}/{max_tries - 1}...")
+            process, output_queue = start_process_and_output_thread(zenoh_cmd, pfr_software_directory)
     else:
         raise Exception("Invalid CLI connection method passed to CLI setting adjusetment script.")
     
@@ -296,7 +299,7 @@ def main(argv):
             process.kill()
             print("\nProcess was terminated.")
         if not instant_exit:
-            input("\nPress enter to close this pane: ")
+            input("\nPress enter to return: ")
         sys.exit()
 
 if __name__ == "__main__":
