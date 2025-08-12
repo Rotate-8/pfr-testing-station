@@ -34,6 +34,7 @@ def main():
         'bash', '-i', '-c',
         f'source "{SETUP_SCRIPT}" && exec {BRINGUP_CMD}'
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.Popen(['zenohd'])
 
     # 4) prompt user
     input("Bring-up launched in the background.  Please click the reset button on the microcontroller then press Enter to continue.")
