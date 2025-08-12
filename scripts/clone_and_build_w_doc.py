@@ -5,6 +5,9 @@ This script creates a target directory, clones the Rotate-8 motor-controller
 repository (with submodules), and runs `pio run` to build the project.
 It handles errors and prompts the user before overwriting any existing repo.
 **Uses vouk's github, currently changing to a pi account with read only access**
+**SUPER IMPORTANT**********21
+Token expires Sep 10,2025
+***************************
 Author: Paras + Vouk  •  Date: 2025-8-6
 Project: Motor-Controller Station  •  Language: Python 3.12
 
@@ -60,7 +63,7 @@ import time
 R8_DIR = "/r8"
 REPO_NAME = "pfr-motor-controllers"
 REPO_DIR = os.path.join(R8_DIR, REPO_NAME)
-REPO_URL = "https://github.com/Rotate-8/pfr-motor-controllers.git"
+REPO_URL = "https://pfr-testing-station-bot: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@github.com/Rotate-8/pfr-motor-controllers.git"
 
 # ──────────────────────────────────────────────────────────────────────────
 # Helper functions
@@ -151,4 +154,5 @@ def main():
 # -------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    
     main()
