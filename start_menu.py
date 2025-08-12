@@ -146,7 +146,7 @@ def main(stdscr):
             current_row_idx = min((current_row_idx + 1), len(menu_items) - 1)
         elif key == curses.KEY_ENTER or key in [10, 13]: # Enter key
             # Execute the selected action
-            if current_row_idx <= 4:
+            if current_row_idx <= 5:
                 stdscr.clear()
                 run_external_script(stdscr, scripts_list[current_row_idx])
             else:
