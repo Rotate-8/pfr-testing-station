@@ -11,6 +11,7 @@ menu_items = [
     "Test motor control stack",
     "Reassign sensor I2C address",
     "Clone and build pfr-motor-controllers github",
+    "Open Bluetooth CLI for Motor Controller",
     "Exit to terminal"
 ]
 
@@ -23,13 +24,15 @@ TEST_STACK_SCRIPT = "test_stack.py"
 BURN_ADDR_SCRIPT = "burn_addr.py"
 CLONE_AND_BUILD_SCRIPT = "clone_and_build.py"
 CLI_AUTOMATION_SCRIPT = "open_CLI_and_adjust_settings.py"
+OPEN_BLE_SCRIPT = "open_ble.py"
 
 scripts_list = [
     SERIAL_MONITOR_SCRIPT,
     FLASH_CODE_SCRIPT,
     TEST_STACK_SCRIPT,
     BURN_ADDR_SCRIPT,
-    CLONE_AND_BUILD_SCRIPT
+    CLONE_AND_BUILD_SCRIPT,
+    OPEN_BLE_SCRIPT
 ]
 
 def run_external_script(stdscr, script_name):
