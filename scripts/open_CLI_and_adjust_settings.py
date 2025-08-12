@@ -44,11 +44,13 @@ CMDS = {
 
 def read_until_message(q, messages, timeout, print_output=False):
     start_time = time.time()
+    if type(messages) == str:
+        messages = [messages]
+    elif type(messages) != list:
+        raise Exception("Invalid message to listen for passed in CLI connection script...")
     while time.time() - start_time < timeout:
         messages_present = True # set to True until proven false
-        
         try:
-            # Try to get a line from the queue. `timeout=1` makes this a non-blocking check
             output_line = q.get(block=True, timeout=0.1)
             if print_output:
                 print(output_line)
@@ -71,17 +73,30 @@ def read_until_message(q, messages, timeout, print_output=False):
     return False
 
 
+def count_unshared_characters(str1, str2):
+    unshared_count = 0
+    for i in range(min(len(str1), len(str2))):
+        if str1[i] != str2[i]:
+            unshared_count += 1
+    return unshared_count + abs(len(str1) - len(str2))
+
+
 def send_and_confirm_command(process, output_queue, setting, val):
+    print(f"Setting {setting} to {val}")
     process.stdin.write(f"settings {setting} {val}\n")
     if not read_until_message(output_queue, "set to", 0.2):
         process.stdin.write("settings help\n")
         settings_list = ""
-        curr_line = process.stdout.readline()
-        print("Starting adding settings to settings list")
-        while curr_line:
-            print(f"Curr_line: {curr_line}")
+        time.sleep(0.3)
+        while not output_queue.empty():
+            # print(output_queue.get(block=True, timeout=0.1))
+            curr_line = output_queue.get(block=True, timeout=0.1)
+            if curr_line == "\n":
+                continue
+            unshared_chars = count_unshared_characters(setting, curr_line)
+            if unshared_chars > 0 and unshared_chars < 4:
+                raise Exception(f"Failed to set {setting} to {val}. Make sure setting hasn't been changed to {curr_line}.")
             settings_list += curr_line
-            curr_line = process.stdout.readline()
         print("Finished adding settings to settings list")
         raise Exception(f"Failed to set {setting} to {val}. Current list of available settings:{COLOR_RESET}\n{settings_list}")
 
@@ -100,7 +115,6 @@ def reset_settings(process, output_queue, zenoh_endpoint_ip=None):
 def setup_settings(process, output_queue):    
     for command in CMDS.keys():
         val = CMDS[command][0]
-        print(f"Changing value for {command}\n")
         send_and_confirm_command(process, output_queue, command, val)
 
 def connect_to_bluetooth_cli(process, output_queue):
@@ -179,6 +193,7 @@ def connect_to_bluetooth_cli(process, output_queue):
 # here just so main() reads more nicely
 def connect_to_zenoh_cli(output_queue):
     if read_until_message(output_queue, "motor found", timeout=5):
+        print("Connected using zenoh cli\n")
         return True
     else:
         return False
@@ -234,14 +249,15 @@ def loop_connection_attempts(mode):
                 process, output_queue = start_process_and_output_thread(ble_cmd, rust_project_directory)
             print("Bluetooth connected successfully, adjusting settings")
     elif mode == "zenoh":
+        max_tries = 3
         process, output_queue = start_process_and_output_thread(zenoh_cmd, pfr_software_directory)
         tries = 1
-        while not zenoh_cmd and tries <= 3:
-            print(f"Attempt {tries} to connect to motor controller CLI over zenoh...")
-            if connect_to_zenoh_cli(output_queue):
-                break
-            process, output_queue = start_process_and_output_thread(ble_cmd, rust_project_directory)
+        while not connect_to_zenoh_cli(output_queue) and tries < max_tries + 1:
             tries += 1
+            if tries == max_tries + 1:
+                raise Exception("Unable to connect. Make sure motor controller is connected over zenoh.")
+            print(f"\nRetrying connection to motor controller CLI over zenoh {tries - 1}/{max_tries - 1}...")
+            process, output_queue = start_process_and_output_thread(zenoh_cmd, pfr_software_directory)
     else:
         raise Exception("Invalid CLI connection method passed to CLI setting adjusetment script.")
     
@@ -253,9 +269,8 @@ def main(argv):
     # Access flag values
     mode = flags.FLAGS.mode.lower().strip()
     reset_settings_flag = flags.FLAGS.reset_settings
-    print(f"=== Launching BLE CLI using pfr-rust-nodes ===")
-    print(f"Mode: {mode}")
-    print(f"Reset settings: {reset_settings_flag}")
+
+    print(f"=== {"Resetting" if reset_settings_flag else "Setting"} settings using {mode} CLI ===")
 
     if not os.path.isdir(rust_project_directory):
         with open('r8/pfr-rust-nodes', 'w') as f:
@@ -284,7 +299,7 @@ def main(argv):
             process.kill()
             print("\nProcess was terminated.")
         if not instant_exit:
-            input("\nPress enter to close this pane: ")
+            input("\nPress enter to return: ")
         sys.exit()
 
 if __name__ == "__main__":

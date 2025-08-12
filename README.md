@@ -69,12 +69,3 @@ To allow the Pi user to start and stop the zenohd service without a password:
 	fi
     
 ---
-
-## Firmware Flashing
-Use the provided script to flash firmware to the ESP32-S3:
-```bash
-python scripts/flash_code_and_monitor.py
-```
-Follow prompts to ensure the device is flashed and ready.
-
----
