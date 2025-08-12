@@ -216,5 +216,5 @@ if __name__ == "__main__":
         print(f"{COLOR_RED}ERROR:{e}{COLOR_RESET}")
     finally:
         if not instant_exit:
-            input("Press enter to return to main menu: ")
+            input("\nPress enter to return to main menu: ")
         sys.exit()

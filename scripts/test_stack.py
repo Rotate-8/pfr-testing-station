@@ -51,23 +51,24 @@ def main():
 
         # 5) run teleop in foreground
         print("Running pfr_teleop in this terminal…")
-        try:
-            proc = subprocess.Popen([
-                'bash', '-i', '-c',
-                f'source "{SETUP_SCRIPT}" && exec {TELEOP_CMD}'
-            ])
-            proc.wait()
-        except KeyboardInterrupt:
-            print("\nKeyboardInterrupt received. Terminating teleop process...")
-            proc.terminate()
-            proc.wait()
+        # try:
+        proc = subprocess.Popen([
+            'bash', '-i', '-c',
+            f'source "{SETUP_SCRIPT}" && exec {TELEOP_CMD}'
+        ])
+        proc.wait()
+        # except KeyboardInterrupt:
+        #     print("\nKeyboardInterrupt received. Terminating teleop process...")
+        #     proc.terminate()
+        #     proc.wait()
 
-        if input("\nWould you like to change motor controller settings back to standard? (y/n): ").lower().stirp() == "y":
-            subprocess.run(
-            ['python3', CLI_AUTOMATION_SCRIPT, '--mode=zenoh', '--reset_settings'],
-            check=True,
-            capture_output=False
-            )
+        # if input("\nWould you like to change motor controller settings back to standard? (y/n): ").lower().strip() == "y":
+        #     subprocess.run(
+        #     ['python3', CLI_AUTOMATION_SCRIPT, '--mode=zenoh', '--reset_settings'],
+        #     check=True,
+        #     capture_output=False,
+        #     cwd=os.getcwd()
+        #     )
 
     except KeyboardInterrupt:
         instant_exit = True
@@ -80,7 +81,7 @@ def main():
         capture_output=True,
         text=True)
         if not instant_exit:
-            print("Press enter to return to main menu: ")
+            input("\nPress enter to return to main menu: ")
         sys.exit()
 
 if __name__ == '__main__':
