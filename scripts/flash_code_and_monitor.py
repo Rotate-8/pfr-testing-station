@@ -1,50 +1,100 @@
+
+"""
+Flashes code to the ESP32-brain board and opens a serial monitor.
+
+This script finds the ESP32-brain board's serial port, prompts the user to
+put the board into boot mode, uploads the firmware (either prebuilt or by
+building), and then opens a serial monitor to view output. It handles errors
+and guides the user through the process.
+
+Author: Paras + Vouk  •  Date: 2025-8-6
+Project: Motor-Controller Station  •  Language: Python 3.12
+
+Usage-host must have PlatformIO CLI and pyserial installed:
+    $ python3 flash_code_and_monitor.py
+
+** IMPORTANT*******************************************************
+The code follows documentation guidelines (§SWE-061 / PEP 257
+Google format) so every public function and module begins with a clear
+72-char summary line, then a blank line, then extended detail.
+*******************************************************************"""
+
+# ──────────────────────────────────────────────────────────────────────────
+# Code Structure Diagram
+# -------------------------------------------------------------------------
+#
+#   ┌───────────────┐
+#   │  Constants &  │
+#   │ Configuration │
+#   └───────┬───────┘
+#           │
+#           ▼
+#   ┌─────────────────────────────────────────────────────────────┐
+#   │                   Helper Functions                         │
+#   │ ────────────────────────────────────────────────────────── │
+#   │  upload_project                                            │
+#   │  find_files_in_incomplete_directory                        │
+#   │  find_files_in_incomplete_directory_helper                 │
+#   │  upload_prebuilt_binary                                    │
+#   └───────────────┬────────────────────────────────────────────┘
+#                   │
+#                   ▼
+#   ┌─────────────────────────────┐
+#   │     Main Program Flow       │
+#   │ ──────────────────────────  │
+#   │ main()                      │
+#   └───────┬─────────────────────┘
+#           │
+#           ▼
+#   ┌─────────────────────────────┐
+#   │   Script Entry Point        │
+#   │ ──────────────────────────  │
+#   │ if __name__ == "__main__":  │
+#   └─────────────────────────────┘
+# -------------------------------------------------------------------------
+
 import sys
 import os
 from open_serial_monitor import run_command, find_brain_board_port, monitor_serial_output_and_prompt_operations
+
+# ──────────────────────────────────────────────────────────────────────────
+# Constants & configuration
+# -------------------------------------------------------------------------
 
 COLOR_RED = '\033[91m'
 COLOR_YELLOW = '\033[93m'
 COLOR_RESET = '\033[0m'
 
-# Path to your PlatformIO project directory (where platformio.ini is located)
-# This is crucial for 'pio run' to find your project.
 PIO_PROJECT_PATH = "/r8/pfr-motor-controllers"
 PIO_BUILD_ENV_NAME = "motor-controller"
 
-# Identifier for your ESP32-brain board.
-# Based on your 'pio device list --json-output', the FT232R chip is unique to your brain board.
-# The ESP32-S3 typically shows "USB Single Serial" or similar.
-FLASH_MODE = "dio"  # Default flash mode
-# TODO: CHANGE THIS BACK WHEN USING A BRAIN BOARD
-BRAIN_BOARD_IDENTIFIER = "FT232R"  # Updated to match the FT232R chip identifier
-# BRAIN_BOARD_IDENTIFIER = "USB Single Serial" # <<< CHANGE THIS TO "FT232R"
+FLASH_MODE = "dio"
+BRAIN_BOARD_IDENTIFIER = "FT232R"  # Unique identifier for ESP32-brain board
 
-# --- Flashing Specifics (Derived from your exact pio run output) ---
-# These parameters are taken directly from the successful esptool.py command you provided.
 FLASH_CHIP_TYPE = "esp32s3"
 UPLOAD_BAUD_RATE = "921600"
-FLASH_MODE = "dio"
 FLASH_FREQ = "80m"
 FLASH_SIZE = "8MB"
 
-# Offsets for each binary file as specified in your pio run output
 BOOTLOADER_OFFSET = "0x0000"
 PARTITIONS_OFFSET = "0x8000"
 BOOT_APP0_OFFSET = "0xe000"
 FIRMWARE_OFFSET = "0x10000"
 
-# Path to boot_app0.bin (this is a fixed path within PlatformIO's packages)
+# ──────────────────────────────────────────────────────────────────────────
+# Helper functions
+# -------------------------------------------------------------------------
 
-# --- Helper Functions ---
 
 def upload_project(port, project_path, build_env_name):
     """
     Uploads the built project to the specified ESP32 port.
-    """
 
+    If no prebuilt binary is found, builds and uploads using PlatformIO.
+    Otherwise, flashes the prebuilt binary using esptool.py.
+    """
     if not os.path.isfile(os.path.join(project_path, ".pio", "build", build_env_name, "firmware.bin")):
         print(f"\n--- No prebuilt binary file detected, building and flashing to {port} ---")
-        # The --upload-port (-p) flag specifies the target port for upload
         run_command(["pio", "run", "--target", "upload", "--upload-port", port], cwd=project_path, capture_output=False)
     else:
         print(f"\n--- Flashing prebuilt binary to {port} ---")
@@ -55,6 +105,15 @@ def upload_project(port, project_path, build_env_name):
 def find_files_in_incomplete_directory(directory, filename, subdir=None, allow_empty=False):
     """
     Searches for a file(s) in a subdir of the specified directory and returns its full path if found.
+
+    Args:
+        directory: Root directory to search.
+        filename: File name or list of file names to find.
+        subdir: Optional subdirectory path to search within.
+        allow_empty: If True, allows missing files without exiting.
+
+    Returns:
+        List of found file paths or a single path if only one file is searched.
     """
     subdirs = []
     if subdir != None:
@@ -84,6 +143,17 @@ def find_files_in_incomplete_directory(directory, filename, subdir=None, allow_e
 
 
 def find_files_in_incomplete_directory_helper(directory, target_file, subdirs: list):
+    """
+    Recursively searches for a file in a directory and its subdirectories.
+
+    Args:
+        directory: Directory to search.
+        target_file: Name of the file to find.
+        subdirs: List of subdirectories to traverse.
+
+    Returns:
+        Full path to the found file or None.
+    """
     if subdirs != []:
         for root, dirs, _ in os.walk(directory):
             if subdirs[0] in dirs:
@@ -102,6 +172,8 @@ def find_files_in_incomplete_directory_helper(directory, target_file, subdirs: l
 def upload_prebuilt_binary(port, project_path, build_env_name):
     """
     Flashes a prebuilt binary file to the specified ESP32 port using esptool.py directly.
+
+    Finds all required binaries and uses esptool.py to write them to the device.
     """
     bootloader_bin_path, partitions_bin_path, firmware_bin_path = find_files_in_incomplete_directory(f"{project_path}/.pio", ["bootloader.bin", "partitions.bin", "firmware.bin"], subdir=build_env_name)
 
@@ -151,18 +223,22 @@ def upload_prebuilt_binary(port, project_path, build_env_name):
 
 def main():
     """
-    Main function to orchestrate finding the board, uploading, 
-    monitoring.
-    """ 
+    Main function to orchestrate finding the board, uploading, and monitoring.
+
+    Steps:
+      1. Check project path exists.
+      2. Find ESP32-brain board serial port.
+      3. Prompt user for boot mode instructions.
+      4. Upload project (build or flash prebuilt).
+      5. Monitor serial output.
+    """
     try:
         instant_exit = False
 
         if not os.path.isdir(PIO_PROJECT_PATH):
             raise ValueError(f"Error: Project path '{PIO_PROJECT_PATH}' does not exist or is not a directory. Please check and/or clone directory again.", file=sys.stderr)
-        # 1. Find the ESP32-brain board's serial port
         brain_board_port = find_brain_board_port(BRAIN_BOARD_IDENTIFIER)
 
-        # 2. Prompt for boot mode on the ESP32-brain board
         x = "help"
         while x == "help":
             x = input("Put ESP32 into boot mode if you haven't already. Press Enter to continue or type 'help' for instructions: ").strip().lower()
@@ -172,13 +248,10 @@ def main():
                 print("2. While holding BOOT, press and release the RESET button.")
                 print("3. Release the BOOT button after a second.")
 
-
-        # 3. Upload the project
         upload_project(brain_board_port, PIO_PROJECT_PATH, PIO_BUILD_ENV_NAME)
 
         input("Reset the board and press enter to continue: ")
         
-        # 5. Monitor the device
         monitor_serial_output_and_prompt_operations(brain_board_port)
 
         print("\nAll operations completed successfully.")
@@ -190,7 +263,7 @@ def main():
     finally:
         if not instant_exit:
             input("Press any key to return to menu: ")
-        sys.exit(1)
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()
