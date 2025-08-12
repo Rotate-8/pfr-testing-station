@@ -10,8 +10,7 @@ A Raspberry Pi–powered test station for automating ESP32-S3 firmware builds, f
 2. [Software Setup](#software-setup)
 3. [Pi Configuration](#pi-configuration)
 4. [Firmware Flashing](#firmware-flashing)
-5. [Testing & Monitoring](#testing--monitoring)
-6. [Documentation & Troubleshooting](#documentation--troubleshooting)
+
 
 ---
 

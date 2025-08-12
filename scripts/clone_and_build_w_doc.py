@@ -4,7 +4,7 @@ Clones the motor-controller repository and builds it using PlatformIO.
 This script creates a target directory, clones the Rotate-8 motor-controller
 repository (with submodules), and runs `pio run` to build the project.
 It handles errors and prompts the user before overwriting any existing repo.
-
+**Uses vouk's github, currently changing to a pi account with read only access**
 Author: Paras + Vouk  •  Date: 2025-8-6
 Project: Motor-Controller Station  •  Language: Python 3.12
 
@@ -60,7 +60,7 @@ import time
 R8_DIR = "/r8"
 REPO_NAME = "pfr-motor-controllers"
 REPO_DIR = os.path.join(R8_DIR, REPO_NAME)
-REPO_URL = "git@github.com:Rotate-8/pfr-motor-controllers.git"
+REPO_URL = "https://github.com/Rotate-8/pfr-motor-controllers.git"
 
 # ──────────────────────────────────────────────────────────────────────────
 # Helper functions
