@@ -6,16 +6,23 @@ from serial.tools import list_ports
 import sys
 import os
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+from start_menu import CLI_AUTOMATION_SCRIPT, TEST_STACK_SCRIPT
+
+
+
+# CHANGE BACK BEFORE MONDAY
 BRAIN_BOARD_IDENTIFIER = "FT232R"
+# BRAIN_BOARD_IDENTIFIER = "USB Single Serial"
 
 COLOR_RED = '\033[91m'
 COLOR_YELLOW = '\033[93m'
 COLOR_RESET = '\033[0m'
 
-BLUETOOTH_FILE_PATH = "bluetooth_connected.txt"
-BLUETOOH_MSG = "[ble] device connected"
+BLUETOOTH_FILE_PATH = f"bluetooth_connected.txt"
+CONNECTION_TEST_COMMAND = "pong"
 WIFI_SETUP_MSG = "enter \'wifi-connect\'"
-BLE_AUTOMATION_SCRIPT = "connect_BLE.py"
+
 
 def run_command(command, cwd=None, capture_output=False, text=False):
     """
@@ -33,17 +40,11 @@ def run_command(command, cwd=None, capture_output=False, text=False):
         )
         return result
     except subprocess.CalledProcessError as e:
-        print(f"{COLOR_RED}Error: Command '{' '.join(e.cmd)}' failed with exit code {e.returncode}{COLOR_RESET}", file=sys.stderr)
-        input("Press any key to return to menu: ")
-        sys.exit(1) # Exit script on command failure
+        raise Exception(f"Command '{' '.join(e.cmd)}' failed with exit code {e.returncode}")
     except FileNotFoundError:
-        print(f"{COLOR_RED}Error: Command '{command[0]}' not found. Make sure PlatformIO (pio) is installed and in your PATH.{COLOR_RESET}", file=sys.stderr)
-        input("Press any key to return to menu: ")
-        sys.exit(1)
+        raise Exception(f"Command '{command[0]}' not found. Make sure PlatformIO (pio) is installed and in your PATH.")
     except Exception as e:
-        print(f"An unexpected error occurred: {e}", file=sys.stderr)
-        input("Press any key to return to menu: ")
-        sys.exit(1)
+        raise Exception(f"unexpected error: {e}")
 
 def find_brain_board_port(identifier):
     """
@@ -53,9 +54,7 @@ def find_brain_board_port(identifier):
         result = run_command(["pio", "device", "list", "--json-output"], capture_output=True, text=True)
         devices = json.loads(result.stdout)
     except json.JSONDecodeError:
-        print(f"{COLOR_RED}Error: Could not parse JSON output from 'pio device list'.{COLOR_RESET}", file=sys.stderr)
-        input("Press any key to return to menu: ")
-        sys.exit(1)
+        raise Exception(f"Could not parse JSON output from 'pio device list'.")
 
     brain_board_port = None
     found_devices = []
@@ -70,13 +69,7 @@ def find_brain_board_port(identifier):
             found_devices.append(dev)
 
     if not found_devices:
-        print(f"{COLOR_RED}Error: No ESP32-brain board found matching identifier '{identifier}'.{COLOR_RESET}", file=sys.stderr)
-        print("Please ensure the board is connected and powered, and verify your BRAIN_BOARD_IDENTIFIER.", file=sys.stderr)
-        print("\nAvailable devices (from 'pio device list --json-output'):")
-        for dev in devices:
-            print(f"Port: {dev.get('port', 'N/A')}, Description: {dev.get('description', 'N/A')}, HWID: {dev.get('hwid', 'N/A')}")
-        input("Press any key to return to menu: ")
-        sys.exit(1)
+        raise Exception(f"No ESP32-brain board found matching identifier '{identifier}'.")
     elif len(found_devices) > 1:
         print(f"{COLOR_YELLOW}Warning: Multiple devices found matching identifier '{identifier}'. Using the first one found: {found_devices[0]['port']}{COLOR_RESET}", file=sys.stderr)
         print("Consider using a more specific BRAIN_BOARD_IDENTIFIER if this is not intended.\n", file=sys.stderr)
@@ -88,7 +81,22 @@ def find_brain_board_port(identifier):
     return brain_board_port
 
 
-def monitor_serial_output(port_name):
+def get_tmux_info():
+    """Gets the number of panes and the current pane index from tmux."""
+    # Get the total number of panes in the current window
+    pane_count_cmd = ['tmux', 'display-message', '-p', '#{window_panes}']
+    pane_count_result = subprocess.run(pane_count_cmd, capture_output=True, text=True, check=True)
+    pane_count = int(pane_count_result.stdout.strip())
+    
+    # Get the index of the currently active pane
+    current_pane_cmd = ['tmux', 'display-message', '-p', '#{pane_index}']
+    current_pane_result = subprocess.run(current_pane_cmd, capture_output=True, text=True, check=True)
+    current_pane_index = int(current_pane_result.stdout.strip())
+
+    return pane_count, current_pane_index
+
+
+def monitor_serial_output_and_prompt_operations(port_name):
     """
     Continuously rseads and prints serial output from the specified port.
 
@@ -105,46 +113,72 @@ def monitor_serial_output(port_name):
         ser = serial.Serial(port_name, baudrate=baud_rate, timeout=1)
         print(f"Successfully connected to {port_name} serial monitor at {baud_rate} baud.")
 
+        signal_listener = None
         # Clear any initial garbage data that might be in the buffer
         time.sleep(0.1)
         ser.flushInput()
 
         while True:
-            # Read a line from the serial port.
-            # .readline() reads until a newline character (\n) is found.
-            # .decode('utf-8') converts bytes to a string.
-            # .strip() removes leading/trailing whitespace, including the newline.
             line = ser.readline().decode('utf-8', errors='ignore').strip()
             if line:  # Only print if the line is not empty
                 print(line)
                 if WIFI_SETUP_MSG in line.lower():
                     if input("\nWould you like to automatically set up ESP32 settings and cerdentials in a new pane? (y/n): ").strip().lower() == 'y':
+                        signal_name = 'BLE adjusted'
                         if "TMUX" not in os.environ:
                             session_name = "bluetooth cli session"
-
                             tmux_cmd = (
-                                f'tmux new-session -d -s {session_name} "bash -c \\"clear; echo \'Click Ctrl+B followed by arrow keys to navigate windows. \nPress Ctrl+C in script window to return to menu.\'; exec bash\\"" && '
-                                f'tmux split-window -h -t {session_name} "python3 {BLE_AUTOMATION_SCRIPT}; tmux kill-session -t {session_name}" && '
-                                f'tmux select-pane -t {session_name}:0.0 && '
+                                f'tmux new-session -d -s {session_name} "python3 {CLI_AUTOMATION_SCRIPT} && tmux wait-for -S {signal_name}; tmux kill-session -t {session_name}" && '
                                 f'tmux attach-session -t {session_name}'
                             )
                             os.system(tmux_cmd)
                         else:
-                            scripts_dir = os.path.join(os.path.expanduser('~'), 'scripts')
-                            if not os.path.isfile(os.path.join(scripts_dir, BLE_AUTOMATION_SCRIPT)):
-                                raise Exception(f"Bluetooth automation script not found in {scripts_dir}!")
-                            tmux_cmd = f'tmux split-window -v "cd {scripts_dir} && python3 {BLE_AUTOMATION_SCRIPT}; exit"'
-                            
+                            if not os.path.isfile(CLI_AUTOMATION_SCRIPT):
+                                raise Exception(f"Bluetooth automation script named {CLI_AUTOMATION_SCRIPT} not found.")
+                            tmux_cmd = f'tmux split-window -v "python3 {CLI_AUTOMATION_SCRIPT} && tmux wait-for -S {signal_name}; exit"'
                             subprocess.run(tmux_cmd, shell=True)
+                            signal_listener = subprocess.Popen(['tmux', 'wait-for', signal_name])
+
                 # save in a file whether or not the serial monitor confirms that a bluetooth device was connected
-                if BLUETOOH_MSG in line.lower():
+                if CONNECTION_TEST_COMMAND in line.lower():
+                    print(f"Pong has successfully been recieved from {CLI_AUTOMATION_SCRIPT}")
                     bluetooth_connected = 1
+                    write_time = time.time()
                     with open(BLUETOOTH_FILE_PATH, "w") as f:
                         f.write(str(bluetooth_connected))
-                elif bluetooth_connected == 1:
+                        print("Wrote ble value.")
+                    write_time = time.time() - write_time
+                    with open(BLUETOOTH_FILE_PATH, "r") as f:
+                        print(f"DEBUG: value was written at {os.path.join(os.getcwd(), BLUETOOTH_FILE_PATH)}")
+                elif bluetooth_connected == 1 and line != "":
                     bluetooth_connected = 0
                     with open(BLUETOOTH_FILE_PATH, "w") as f:
                         f.write(str(bluetooth_connected))
+                
+                if signal_listener is not None and signal_listener.poll() is not None:
+                    if input("\nWould you like to test motor control stack? (y/n): ").strip().lower() == 'y':
+                        if "TMUX" not in os.environ:
+                            session_name = "test_motor_session"
+                            tmux_cmd = (
+                                f'tmux new-session -d -s {session_name} "python3 {TEST_STACK_SCRIPT} && tmux wait-for -S {signal_name}; tmux kill-session -t {session_name}" && '
+                                f'tmux attach-session -t {session_name}'
+                            )
+                            os.system(tmux_cmd)
+                        else:
+                            tmux_panes, pane_index = get_tmux_info()
+                            if tmux_panes == 2 and pane_index == 1:
+                                tmux_cmd = (
+                                    f'tmux select-pane -t 0 '
+                                    f'"python3 {TEST_STACK_SCRIPT}; exit"'
+                                )
+                            else:
+                                print(f"{COLOR_YELLOW}Warning: Unexpected tmux window configuration, opening new window for test stack script.{COLOR_RESET}")
+                                tmux_cmd = (
+                                f'tmux split-window -h -t {session_name} '
+                                f'"python3 {CLI_AUTOMATION_SCRIPT}; exit"'
+                                )
+                            subprocess.run(tmux_cmd)
+
 
     except serial.SerialException as e:
         print(f"Error: Could not open serial port {port_name}. {e}")
@@ -152,8 +186,6 @@ def monitor_serial_output(port_name):
         print("Available ports:")
         for port in list_ports.comports():
             print(f"  {port.device} - {port.description}")
-    except KeyboardInterrupt:
-        print("\nMonitoring stopped by user.")
     finally:
         if 'ser' in locals() and ser.is_open:
             ser.close()
@@ -162,13 +194,9 @@ def monitor_serial_output(port_name):
 
 
 if __name__ == "__main__":
-    # Default serial port and baud rate
-    # You might need to change 'COM3' to your ESP32's port (e.g., 'COMx' on Windows,
-    # '/dev/ttyUSB0' or '/dev/ttyACM0' on Linux, '/dev/cu.usbserial-XXXX' on macOS)
-    # and adjust the baud_rate if your ESP32 firmware uses a different one.
-    
-    # Attempt to auto-detect the port
     try:
+        instant_exit = False
+
         default_port = find_brain_board_port(BRAIN_BOARD_IDENTIFIER)
         
         if default_port is None:
@@ -181,9 +209,12 @@ if __name__ == "__main__":
         else:
             port_to_use = default_port
 
-        monitor_serial_output(port_to_use)
+        monitor_serial_output_and_prompt_operations(port_to_use)
+    except KeyboardInterrupt:
+        instant_exit = True
     except Exception as e:
-        print(f"An unexpected error occurred: {COLOR_RED}{e}{COLOR_RESET}")
+        print(f"{COLOR_RED}ERROR:{e}{COLOR_RESET}")
     finally:
-        input("Press any key to return to main menu: ")
+        if not instant_exit:
+            input("Press enter to return to main menu: ")
         sys.exit()

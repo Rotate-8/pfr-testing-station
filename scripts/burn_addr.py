@@ -1,31 +1,102 @@
 """
-burn_addr.py
+Burns a new I2C address to an encoder plugged into an ESP32-S3 board.
 
-1) Reset the ESP32‑S3 into its normal firmware mode
-2) Show its startup banner (filtering out the firmware’s own prompts)
-3) Prompt once for:
-     • Sensor I²C address (hex, default 0x40)
-     • Action: Read (r) or Burn (b)
-     • New address (if burning)
-4) Send all inputs in one sequence
-5) Print firmware output (filtering its prompts)
+This script connects to the ESP32-S3 via serial, prompts the user for the
+current and new I2C addresses, and sends the appropriate commands to change
+the address. It uses PlatformIO CLI to identify the correct serial port.
+
+Author: Paras + Vouk
+Date: 2025-8-6
+Project: Motor-Controller Station
+Language: Python 3.12
+
+Usage:
+    Host must have PlatformIO CLI and pyserial installed.
+    $ python3 burn_addr.py
+
+Variable Typing Requirements:
+    - All constants and configuration variables are explicitly typed.
+    - Function arguments and return types are annotated where possible.
+    - Serial port and subprocess results are typed for clarity.
+
+Documentation:
+    The code follows documentation guidelines (§SWE-061 / PEP 257, Google format).
+    Every public function and module begins with a clear 72-char summary line,
+    then a blank line, then extended detail if needed.
 """
-import serial, time, sys, subprocess, json
+# ──────────────────────────────────────────────────────────────────────────
+# Code Structure Diagram
+# -------------------------------------------------------------------------
+# 
+#   ┌───────────────┐
+#   │  Constants &  │
+#   │ Configuration │
+#   └───────┬───────┘
+#           │
+#           ▼
+#   ┌─────────────────────────────┐
+#   │      Helper Functions       │
+#   │ ──────────────────────────  │
+#   │ run_pio_command             │
+#   │ find_serial_port            │
+#   │ reset_esp32                 │
+#   │ print_banner                │
+#   └───────┬─────────────────────┘
+#           │
+#           ▼
+#   ┌─────────────────────────────┐
+#   │     Main Program Flow       │
+#   │ ──────────────────────────  │
+#   │ main()                      │
+#   └───────┬─────────────────────┘
+#           │
+#           ▼
+#   ┌─────────────────────────────┐
+#   │   Script Entry Point        │
+#   │ ──────────────────────────  │
+#   │ if __name__ == "__main__":  │
+#   └─────────────────────────────┘
+# -------------------------------------------------------------------------
+import serial
+import time
+import sys
+import subprocess
+import json
 
-COLOR_RED = '\033[91m'
-COLOR_YELLOW = '\033[93m'
-COLOR_RESET = '\033[0m'
+# ──────────────────────────────────────────────────────────────────────────
+# Constants & configuration
+# -------------------------------------------------------------------------
 
-BAUD = 115200
-RESET_PULSE_MS = 50
-BOOT_SETTLE_MS = 300
-RESPONSE_TIMEOUT = 2.0  # seconds
+COLOR_RED: str = "\033[91m"
+COLOR_YELLOW: str = "\033[93m"
+COLOR_RESET: str = "\033[0m"
 
-ESP32_S3_IDENTIFIER = "USB Single Serial"
+BAUD: int = 115_200
+RESET_PULSE_MS: int = 50      # Duration EN low → high
+BOOT_SETTLE_MS: int = 300     # Give firmware time to boot
+RESPONSE_TIMEOUT: float = 2.0 # Seconds to collect firmware banner
 
-def run_pio_command(command, capture_output=False, text=False):
+ESP32_S3_IDENTIFIER: str = "USB Single Serial"  # Sub‑string from `pio` desc
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Helper functions
+# -------------------------------------------------------------------------
+
+def run_pio_command(command: list[str], capture_output: bool = False, text: bool = False) -> subprocess.CompletedProcess:
     """
-    Helper function to run a PlatformIO shell command and handle common errors.
+    Runs a PlatformIO shell command and handles common errors.
+
+    Args:
+        command (list[str]): The command and arguments to run.
+        capture_output (bool): Whether to capture stdout/stderr.
+        text (bool): If True, output is returned as string.
+
+    Returns:
+        subprocess.CompletedProcess: The result of the subprocess run.
+
+    Raises:
+        SystemExit: If the command fails or PlatformIO is not found.
     """
     try:
         result = subprocess.run(
@@ -48,9 +119,15 @@ def run_pio_command(command, capture_output=False, text=False):
         print(f"An unexpected error occurred while running pio command: {e}", file=sys.stderr)
         sys.exit(1)
 
-def find_serial_port():
+def find_serial_port() -> str:
     """
     Finds the serial port for the ESP32-S3 board using 'pio device list --json-output'.
+
+    Returns:
+        str: The serial port name (e.g., 'COM3' or '/dev/ttyACM0').
+
+    Raises:
+        SystemExit: If no suitable device is found or JSON cannot be parsed.
     """
     print(f"Searching for ESP32-S3 board with identifier: '{ESP32_S3_IDENTIFIER}'...")
     try:
@@ -64,7 +141,6 @@ def find_serial_port():
     found_devices = []
 
     for dev in devices:
-        port = dev.get("port")
         description = dev.get("description", "").lower()
         hwid = dev.get("hwid", "").lower()
 
@@ -88,7 +164,17 @@ def find_serial_port():
 
     return s3_port
 
-def reset_esp32(port):
+
+def reset_esp32(port: str) -> serial.Serial:
+    """
+    Resets the ESP32-S3 by toggling DTR/RTS lines on the given serial port.
+
+    Args:
+        port (str): The serial port to use.
+
+    Returns:
+        serial.Serial: The open serial connection after reset.
+    """
     ser = serial.Serial(port, BAUD, timeout=1, rtscts=False, dsrdtr=False)
     ser.setRTS(True)     # BOOT high → normal boot
     ser.setDTR(False)    # EN low
@@ -97,7 +183,17 @@ def reset_esp32(port):
     time.sleep(BOOT_SETTLE_MS/1000.0)
     return ser
 
-def print_banner(ser):
+
+def print_banner(ser: serial.Serial) -> bool:
+    """
+    Reads and prints the ESP32 firmware banner, looking for the I2C prompt.
+
+    Args:
+        ser (serial.Serial): The open serial connection.
+
+    Returns:
+        bool: True if the I2C prompt is detected, False otherwise.
+    """
     lines, end = [], time.time() + 1.0
     i2c_prompt = False
     while time.time() < end:
@@ -109,11 +205,20 @@ def print_banner(ser):
             print("  ", l)
     return False
 
-def main():
+def main() -> None:
+    """
+    Main program flow for burning a new I2C address to the sensor.
+
+    Steps:
+        1. Find and reset the ESP32-S3 board.
+        2. Prompt user for current and new I2C addresses.
+        3. Send commands to burn the new address.
+        4. Print firmware output and exit.
+    """
     # 1) Reset & show banner
-    port = find_serial_port()
+    port: str = find_serial_port()
     print(f"Resetting ESP32 on {port} @ {BAUD} baud…")
-    ser = serial.Serial(port, BAUD) # Open serial connection here
+    ser: serial.Serial = serial.Serial(port, BAUD) # Open serial connection here
     ser = reset_esp32(port)
     if not print_banner(ser):
         print("\nError: No I2C prompted raised by ESP32. Check the ESP32-S3 is connected and try resetting.", file=sys.stderr)
@@ -122,14 +227,14 @@ def main():
         sys.exit(1)
 
     # 2) Single round of user prompts
-    sensor_addr = input("\nCurrent I²C address [default 0x40]: ").strip() or "0x40"
+    sensor_addr: str = input("\nCurrent I²C address [default 0x40]: ").strip() or "0x40"
 
     print(f"\n>> Sensor addr → {sensor_addr}")
     ser.write((sensor_addr + "\n").encode())
     time.sleep(0.1)
 
     while True:
-        line = ser.readline().decode('utf-8', errors='ignore')
+        line: str = ser.readline().decode('utf-8', errors='ignore')
         if "error state" in line.lower():
             print("Invalid I²C address detected, restarting ESP32\n")
             time.sleep(2)
@@ -138,11 +243,11 @@ def main():
             break
 
     print('\n>>WARNING: Make sure you only burn a new address to a sensor once.')
-    valid_addr = False
+    valid_addr: bool = False
     while not valid_addr:
-        new_addr = input("Input new I²C address to burn (e.g. 0x41): ").strip()
+        new_addr: str = input("Input new I²C address to burn (e.g. 0x41): ").strip()
         try:
-            dec_addr = int(new_addr, 16)
+            dec_addr: int = int(new_addr, 16)
         except ValueError:
             print("Please enter a valid hex number.")
             continue
@@ -150,7 +255,6 @@ def main():
             print("Please enter a hex number that is less than 10 bits large")
         else:
             valid_addr = True
-
 
     # 3) Send commands in sequence
 
@@ -165,9 +269,9 @@ def main():
 
     # 4) Read and print firmware output (filter prompts)
     print("\n-- Firmware output --")
-    end = time.time() + RESPONSE_TIMEOUT
+    end: float = time.time() + RESPONSE_TIMEOUT
     while time.time() < end:    
-        l = ser.readline().decode(errors='ignore').rstrip()
+        l: str = ser.readline().decode(errors='ignore').rstrip()
         if not l:
             continue
         print(l)
@@ -176,9 +280,15 @@ def main():
     print("\nDone.")
 
 if __name__=="__main__":
+    """
+    Script entry point. Handles top-level exceptions and user exit.
+    """
     try:
+        instant_exit: bool = False
         main()
+    except KeyboardInterrupt:
+        instant_exit = True
     except Exception as e:
         print(f"\nError: {e}", file=sys.stderr)
-        input("Press any key to return to menu: ")
-        sys.exit(1)
+        if not instant_exit:
+            input("Press enter to return to menu: ")
