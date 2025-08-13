@@ -16,10 +16,10 @@ initial_menu = [
     "Exit"                                 # index 3 -> exit
 ]
 
-menu_items_1 = [
+
 # Define the menu options and their corresponding placeholder actions
 
-menu_items = [
+menu_items_1 = [
     "Upload and monitor code on ESP32",
     "Test motor control stack"
 ]
@@ -50,11 +50,7 @@ submenu_scripts = {
     (2, 0): "open_serial_monitor.py",
     (2, 1): "open_ble.py"
 }
-    "Test motor control stack",
-    "Open Motor Controller CLI",
-    "Reassign encoder I2C address",
-    "Exit to terminal"
-]
+
 
 # Adjust this path as needed
 SCRIPTS_DIR = "scripts"
