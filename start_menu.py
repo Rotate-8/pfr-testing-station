@@ -186,7 +186,7 @@ def _draw_submenu_panel(stdscr, top_idx, current_sub_display_idx):
     stdscr.clear()
     h, w = stdscr.getmaxyx()
 
-    header = f"{initial_menu[top_idx]} — Submenu"
+    header = f"{initial_menu[top_idx]}"
     items = ["← Back to Main Menu"] + submenus.get(top_idx, [])
 
     # Compute panel size based on content
