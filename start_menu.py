@@ -16,12 +16,14 @@ initial_menu = [
 
 menu_items_1 = [
     "Upload and monitor code on ESP32",
-    "Test motor control stack"
+    "Test motor control stack",
+    "Exit"
 ]
 
 menu_items_2 = [
     "Open serial monitor for ESP32",
-    "Open Bluetooth CLI for Motor Controller"
+    "Open Bluetooth CLI for Motor Controller",
+    "Exit"
 ]
 
 # Dropdowns: which top index has which submenu list
@@ -41,8 +43,10 @@ top_actions = {
 submenu_scripts = {
     (0, 0): "flash_code_and_monitor.py",
     (0, 1): "test_stack.py",
+    (0, 2): "exit"
     (2, 0): "open_CLI_and_adjust_settings.py",  # (label says serial monitor; mapping kept as you set)
     (2, 1): "open_ble.py"
+    (2, 2): "exit"
 }
 
 # Adjust this path as needed
