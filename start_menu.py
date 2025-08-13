@@ -6,12 +6,10 @@ import os
 # Define the menu options and their corresponding placeholder actions
 
 menu_items = [
-    "Open serial monitor for ESP32",
     "Upload and monitor code on ESP32",
     "Test motor control stack",
-    "Reassign sensor I2C address",
-    "Clone and build pfr-motor-controllers github",
-    "Open Bluetooth CLI for Motor Controller",
+    "Open Motor Controller CLI",
+    "Reassign encoder I2C address",
     "Exit to terminal"
 ]
 

@@ -1,7 +1,7 @@
 import os
 import subprocess
 import sys
-from open_serial_monitor import read_bluetooth_status, BLUETOOTH_FILE_PATH
+from open_serial_monitor import BLUETOOTH_FILE_PATH, read_bluetooth_status, write_bluetooth_status
 import time
 import socket
 import queue
@@ -19,6 +19,11 @@ flags.DEFINE_bool(
     default=False,
     help="Whether to reset settings or set settings. Default is False."
 )
+flags.DEFINE_bool(
+    "automate_commands",
+    default=True,
+    help="Whether to automatically adjust settings once in CLI."
+)
 
 rust_project_directory = "/r8/pfr-rust-nodes1"
 ble_cmd = ["cargo", "run", "-p", "pfr_ble_cli"]
@@ -34,7 +39,7 @@ COLOR_RESET = '\033[0m'
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.connect(("8.8.8.8", 80))
 CMDS = {
-        "zenoh-endpoint": [f"tcp/{s.getsockname()[0]}:7447", f"tcp/:7447"],
+        "zenoh-endpoint": [f"tcp/{s.getsockname()[0]}:7447", f"udp/10.50.50.1:7777"],
         "wifi-ssid": ["twistedfields"],
         "wifi-pass": ["alwaysbekind"],
         "steer-zero-on-boot": ["0", "1"],
@@ -52,8 +57,8 @@ def read_until_message(q, messages, timeout, print_output=False, compare_func=No
         messages_present = True # set to True until proven false
         try:
             output_line = q.get(block=True, timeout=0.1)
-            if print_output:
-                print(output_line)
+            # if print_output:
+                # print(output_line)
 
             # Just give up if an error occurs
             if "[error]" in output_line.lower():
@@ -91,10 +96,10 @@ def count_unshared_characters(str1, str2):
 def send_and_confirm_command(process, output_queue, setting, val):
     print(f"Setting {setting} to {val}")
     process.stdin.write(f"settings {setting} {val}\n")
-    if not read_until_message(output_queue, "set to", 0.3):
+    if not read_until_message(output_queue, "set to", 0.3, print_output=False):
         process.stdin.write("settings help\n")
         settings_list = ""
-        time.sleep(0.3)
+        time.sleep(0.5)
         while not output_queue.empty():
             # print(output_queue.get(block=True, timeout=0.1))
             curr_line = output_queue.get(block=True, timeout=0.1)
@@ -108,13 +113,14 @@ def send_and_confirm_command(process, output_queue, setting, val):
         raise Exception(f"Failed to set {setting} to {val}. Current list of available settings:{COLOR_RESET}\n{settings_list}")
 
 
-def reset_settings(process, output_queue, zenoh_endpoint_ip):
+def reset_settings(process, output_queue, zenoh_endpoint_addr=None):
     for command in CMDS.keys():
         if len(CMDS[command]) == 2:
-            if command == "zenoh-endpoint":
-                val = f'tcp/{zenoh_endpoint_ip}:7447'
+            if zenoh_endpoint_addr and command == "zenoh-endpoint":
+                val = zenoh_endpoint_addr
                 continue
-            val = CMDS[command][1]
+            else:
+                val = CMDS[command][1]
         else:
             continue
         send_and_confirm_command(process, output_queue, command, val)
@@ -132,6 +138,7 @@ def isolate_mac_addr(script_name):
     """
     return script_name.split("/")[-1] if "/" in script_name else script_name
 
+
 def check_equal_mac_addr(mac_addr1, mac_addr2):
     """
     Check if two MAC addresses are equal based of hex value.
@@ -146,7 +153,6 @@ def check_equal_mac_addr(mac_addr1, mac_addr2):
         elif len(addr) != 6:
             return False
     mac_addr1, mac_addr2 = mac_addrs[0], mac_addrs[1]
-    print(f"Comparing {mac_addr1} and {mac_addr2}")
     for i in range(len(mac_addr1)):
         try:
             if int(mac_addr1[i], 16) != int(mac_addr2[i], 16):
@@ -195,13 +201,13 @@ def connect_to_bluetooth_cli(process, output_queue):
         print("Connecting brain board...\n")
 
         # Give the program an extra second to do the scan
-        _, mac_addr = read_bluetooth_status()
+        _, mac_addr, _ = read_bluetooth_status()
         if mac_addr:
-            print(f"Using mac address {mac_addr} to connect to motor controller...")
-            motor_controller_output = read_until_message(output_queue, mac_addr, 4, print_output=True, compare_func=check_equal_mac_addr)
+            print(f"Using mac address to connect to motor controller...")
+            motor_controller_output = read_until_message(output_queue, mac_addr, 4, compare_func=check_equal_mac_addr)
         else:
             print(f"{COLOR_YELLOW}Warning: No mac address found, using name to connect to motor controller.{COLOR_RESET}")
-            motor_controller_output = read_until_message(output_queue, "motor_0_ble", 4, print_output=True)
+            motor_controller_output = read_until_message(output_queue, "motor_0_ble", 4)
         
         if motor_controller_output:
             motor_in_list_to_connect = int(motor_controller_output[motor_controller_output.index("{") + 1:motor_controller_output.index("}")].strip())
@@ -211,7 +217,6 @@ def connect_to_bluetooth_cli(process, output_queue):
         
         if read_until_message(output_queue, "enter a peripheral index", 1):
             time.sleep(0.2)
-            print(f"Entering ble device {motor_in_list_to_connect} into prompt...")
             process.stdin.write(f"{motor_in_list_to_connect}\n")
         else:
             process.terminate()
@@ -221,8 +226,9 @@ def connect_to_bluetooth_cli(process, output_queue):
             time.sleep(1)
             print("Connected to motor controller CLI, verifying connection...\n")
             process.stdin.write(f"ping\n")
-            time.sleep(1)
-            bluetooth_confirmed = read_bluetooth_status()
+            read_until_message(output_queue, "pong", 1)
+            time.sleep(0.5)
+            bluetooth_confirmed, _, _ = read_bluetooth_status()
             if bluetooth_confirmed == 1:
                 print("Connection verified!\n")
                 return True
@@ -257,7 +263,7 @@ def start_process_and_output_thread(command, cwd):
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         text=True,
-        bufsize=1 # This makes it line-buffered, so we get output line by line.
+        bufsize=1 # makes it line-buffered, so we get output line by line.
     )
 
     thread = threading.Thread(target=enqueue_output, args=(process.stdout, output_queue), daemon=True)
@@ -265,23 +271,27 @@ def start_process_and_output_thread(command, cwd):
 
     return process, output_queue
 
-def convert_to_zenoh_ip(ip_str):
-    head = "tcp/"
-    if head in ip_str:
-        ip_str = ip_str[ip_str.index(head) + len(head)]
-    tail = ":7447"
-    if tail in ip_str:
-        ip_str = ip_str[ip_str.index(tail)]
+def check_valid_zenoh_endpoint(ip_str):
+    head_present = ""
+    heads = ["tcp/", "udp/"]
+    for head in heads:
+        if head in ip_str:
+            head_present = head
+            break
+    if not head_present:
+        return False
     
-    ip_ints = ip_str.split(".")
-    if len(ip_ints) == 4:
-        try:
-            ip_ints = [int(v) for v in ip_ints]
-        except ValueError:
-            return "0.0.0.0"
-        return ip_str
-    else:
-        return "0.0.0.0"
+    try:
+        tail = ip_str.split(":")[1]
+        if not tail or not tail.isdigit():
+            return False
+    except IndexError:
+        return False
+    
+    ip_ints = ip_str.replace(head_present, "").split(":").split(".")
+    if len(ip_ints) != 4:
+        return False
+    return True
 
 
 def loop_connection_attempts(mode):
@@ -307,29 +317,68 @@ def loop_connection_attempts(mode):
     return process, output_queue
 
 
+def motor_controller_test_ready(process, output_queue):
+    """
+    Function to run the motor controller test configuration.
+    It will open a tmux session and run the test script.
+    """
+    for command in CMDS.keys():
+        print(f"Sending command to motor controller: settings {command}")
+        process.stdin.write(f"settings {command}\n")
+        time.sleep(0.2)
+        while not output_queue.empty():
+            curr_line = output_queue.get(block=True, timeout=0.1).lower()
+            if CMDS[command][0] not in curr_line or CMDS[command][0] == 0 and "false" not in curr_line:
+                return False
+    return True
+ 
+
 def main(argv):
-    instant_exit = False
-    # Access flag values
-    mode = flags.FLAGS.mode.lower().strip()
-    reset_settings_flag = flags.FLAGS.reset_settings
-
-    print(f"=== {"Resetting" if reset_settings_flag else "Setting"} settings using {mode} CLI ===")
-
-    if not os.path.isdir(rust_project_directory):
-        with open('r8/pfr-rust-nodes', 'w') as f:
-            f.write(f"{COLOR_RED}ERROR: The directory '{rust_project_directory}' does not exist.{COLOR_RESET}")
-        return
-
     try:
+        instant_exit = False
+        # Access flag values
+        mode = flags.FLAGS.mode.lower().strip()
+        reset_settings_flag = flags.FLAGS.reset_settings
+        automate_commands = flags.FLAGS.automate_commands
+
+        if mode == "ble" and not os.path.exists(BLUETOOTH_FILE_PATH):
+            instant_exit = True
+            raise Exception(f"Make sure that the serial monitor script is running to use ble connection mode in order to verify connection to device.")
+
+        print(f"=== {"Resetting" if reset_settings_flag else "Setting"} settings using {mode} CLI ===")
+
+        if not os.path.isdir(rust_project_directory):
+            with open('r8/pfr-rust-nodes', 'w') as f:
+                f.write(f"{COLOR_RED}ERROR: The directory '{rust_project_directory}' does not exist.{COLOR_RESET}")
+            return
+
+    
         process, output_queue = loop_connection_attempts(mode)
 
-        if reset_settings_flag:
-            ip_str = input("Enter new ip for zenoh endpoint (Ipv4 address only), or leave blank to set placeholder: ")
-            ip_str = convert_to_zenoh_ip(ip_str)
-            reset_settings(process, output_queue, ip_str)
+        if automate_commands:
+            if reset_settings_flag:
+                ip_str = input("Enter new for zenoh endpoint address. [default: udp/10.50.50.1:7777]: ")
+                if not check_valid_zenoh_endpoint(ip_str):
+                    print(f"{COLOR_YELLOW}Warning: Invalid zenoh endpoint address. Using default.{COLOR_RESET}")
+                reset_settings(process, output_queue, ip_str)
+            else:
+                setup_settings(process, output_queue)
+            print("Settings adjusted successfully.")
         else:
-            setup_settings(process, output_queue)
-        print("Settings adjusted successfully.")
+            print("You can now enter commands in the CLI. Type 'exit' to quit.")
+            # clear queue before entering CLI commands
+            while not output_queue.empty():
+                output_queue.get(block=True, timeout=0.1)
+            while True:
+                command = input("CLI> ").strip()
+                if command.lower() == "exit":
+                    break
+                process.stdin.write(f"{command}\n")
+                process.stdin.flush()
+                time.sleep(0.5)
+                while not output_queue.empty():
+                    # print(output_queue.get(block=True, timeout=0.5))
+                    i = 1
 
     except KeyboardInterrupt:
         instant_exit = True
@@ -338,11 +387,14 @@ def main(argv):
     finally:
         # A good practice is to make sure the process is closed,
         # even if an error occurs.
+        if not instant_exit:
+            if motor_controller_test_ready(process, output_queue):
+                if os.path.exists(BLUETOOTH_FILE_PATH):
+                    write_bluetooth_status(test_settings_applied=1)
+            input("\nPress enter to return: ")
         if 'process' in locals() and process.poll() is None:
             process.kill()
             print("\nProcess was terminated.")
-        if not instant_exit:
-            input("\nPress enter to return: ")
         sys.exit()
 
 if __name__ == "__main__":
