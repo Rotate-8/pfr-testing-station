@@ -8,7 +8,8 @@ import os
 initial_menu = [
     "Flash and Test ESP32 with auto BLE",
     "Reassign sensor I2C address",
-    "More..."
+    "More...",
+    "Exit"
 ]
 
 menu_items_1 = [
@@ -21,16 +22,22 @@ menu_items_2 = [
     "Open Bluetooth CLI for Motor Controller"
 ]
 
-menu_items = [
-    "Open serial monitor for ESP32",
-    "Upload and monitor code on ESP32",
-    "Test motor control stack",
-    "Reassign sensor I2C address",
-    "Clone and build pfr-motor-controllers github",
-    "Open Bluetooth CLI for Motor Controller",
-    "Exit to terminal"
-]
+submenus = {
+    0: menu_items_1,
+    2: menu_items_2
+}
 
+top_actions = {
+    1:"scripts/burn_addr.py",
+    3:"exit"
+}
+
+submenu_scripts = {
+    (0,0): "scripts/flash_code_and_monitor.py",
+    (0,1): "scripts/test_stack.py", 
+    (0,3): "scripts/open_CLI_and_adjust_settings.py",
+    (0,4): "scripts/open_ble.py"
+}
  # Adjust this path as needed
 SCRIPTS_DIR = "scripts"
 
@@ -162,8 +169,74 @@ def main(stdscr):
             current_row_idx = min((current_row_idx + 1), len(menu_items) - 1)
         elif key == curses.KEY_ENTER or key in [10, 13]: # Enter key
             # Execute the selected action
-            if current_row_idx <= 5:
+if current_row_idx == 0:
+    for idx, item in enumerate(initial_menu):
+        x = w // 2 - len(item) // 2
+        y = h // 2 - len(initial_menu) // 2 + idx
+
+        if idx == current_row_idx:
+            # Highlight the selected item
+            if curses.has_colors():
+                stdscr.attron(curses.color_pair(1))
+            stdscr.addstr(y, x, item)
+            if curses.has_colors():
+                stdscr.attroff(curses.color_pair(1))
+        else:
+            # Default text color
+            if curses.has_colors():
+                stdscr.attron(curses.color_pair(2))
+            stdscr.addstr(y, x, item)
+            if curses.has_colors():
+                stdscr.attroff(curses.color_pair(2))
+
+    stdscr.refresh()  # Update the screen
+
+    # Get user input
+    key = stdscr.getch()
+
+    # Handle navigation keys
+    if key == curses.KEY_UP:
+        current_row_idx = max(current_row_idx - 1, 0)
+    elif key == curses.KEY_DOWN:
+        current_row_idx = min(current_row_idx + 1, len(menu_items) - 1)
+if current_row_idx == 0:
+    for idx, item in enumerate(initial_menu):
+        x = w // 2 - len(item) // 2
+        y = h // 2 - len(initial_menu) // 2 + idx
+
+        if idx == current_row_idx:
+            # Highlight the selected item
+            if curses.has_colors():
+                stdscr.attron(curses.color_pair(1))
+            stdscr.addstr(y, x, item)
+            if curses.has_colors():
+                stdscr.attroff(curses.color_pair(1))
+        else:
+            # Default text color
+            if curses.has_colors():
+                stdscr.attron(curses.color_pair(2))
+            stdscr.addstr(y, x, item)
+            if curses.has_colors():
+                stdscr.attroff(curses.color_pair(2))
+
+    stdscr.refresh()  # Update the screen
+
+    # Get user input
+    key = stdscr.getch()
+
+    # Handle navigation keys
+    if key == curses.KEY_UP:
+        current_row_idx = max(current_row_idx - 1, 0)
+    elif key == curses.KEY_DOWN:
+        current_row_idx = min(current_row_idx + 1, len(menu_items) - 1)
+
+                
+            
+
+
+            if current_row_idx <= 3:
                 stdscr.clear()
+
                 run_external_script(stdscr, scripts_list[current_row_idx])
             else:
                 break
