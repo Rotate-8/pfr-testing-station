@@ -1,7 +1,7 @@
 import os
 import subprocess
 import sys
-from open_serial_monitor import BLUETOOTH_FILE_PATH
+from open_serial_monitor import read_bluetooth_status, BLUETOOTH_FILE_PATH
 import time
 import socket
 import queue
@@ -20,7 +20,7 @@ flags.DEFINE_bool(
     help="Whether to reset settings or set settings. Default is False."
 )
 
-rust_project_directory = "/r8/pfr-rust-nodes"
+rust_project_directory = "/r8/pfr-rust-nodes1"
 ble_cmd = ["cargo", "run", "-p", "pfr_ble_cli"]
 
 pfr_software_directory = "/r8/pfr-software"
@@ -34,15 +34,15 @@ COLOR_RESET = '\033[0m'
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.connect(("8.8.8.8", 80))
 CMDS = {
-        "zenoh-endpoint": [f"tcp/{s.getsockname()[0]}:7447", f"tcp/PLACEHOLDER:7447"],
+        "zenoh-endpoint": [f"tcp/{s.getsockname()[0]}:7447", f"tcp/:7447"],
         "wifi-ssid": ["twistedfields"],
         "wifi-pass": ["alwaysbekind"],
         "steer-zero-on-boot": ["0", "1"],
-        "drive-motor-control-type": ["torque", "voltage"],
-        "steer-motor-control-type": ["torque", "voltage"]
+        "drive-motor-control-type": ["torque", "linear velocity"],
+        "steer-motor-control-type": ["torque", "position"]
     }
 
-def read_until_message(q, messages, timeout, print_output=False):
+def read_until_message(q, messages, timeout, print_output=False, compare_func=None):
     start_time = time.time()
     if type(messages) == str:
         messages = [messages]
@@ -60,9 +60,14 @@ def read_until_message(q, messages, timeout, print_output=False):
                 return False
             
             for message in messages:
-                if message not in output_line.lower():
-                    messages_present = False
-                    break
+                if not compare_func:
+                    if message not in output_line.lower():
+                        messages_present = False
+                        break
+                else:
+                    if not compare_func(output_line.lower(), message):
+                        messages_present = False
+                        break
             if messages_present:
                 return output_line.lower()
 
@@ -74,6 +79,8 @@ def read_until_message(q, messages, timeout, print_output=False):
 
 
 def count_unshared_characters(str1, str2):
+    str1 = str1.replace("\n", "").replace(" ", "")
+    str2 = str2.replace("\n", "").replace(" ", "")
     unshared_count = 0
     for i in range(min(len(str1), len(str2))):
         if str1[i] != str2[i]:
@@ -84,7 +91,7 @@ def count_unshared_characters(str1, str2):
 def send_and_confirm_command(process, output_queue, setting, val):
     print(f"Setting {setting} to {val}")
     process.stdin.write(f"settings {setting} {val}\n")
-    if not read_until_message(output_queue, "set to", 0.2):
+    if not read_until_message(output_queue, "set to", 0.3):
         process.stdin.write("settings help\n")
         settings_list = ""
         time.sleep(0.3)
@@ -95,27 +102,59 @@ def send_and_confirm_command(process, output_queue, setting, val):
                 continue
             unshared_chars = count_unshared_characters(setting, curr_line)
             if unshared_chars > 0 and unshared_chars < 4:
-                raise Exception(f"Failed to set {setting} to {val}. Make sure setting hasn't been changed to {curr_line}.")
+                raise Exception(f"Failed to set {setting} to {val}. Make sure setting hasn't been changed to {curr_line.replace("\n", '')}.")
             settings_list += curr_line
         print("Finished adding settings to settings list")
         raise Exception(f"Failed to set {setting} to {val}. Current list of available settings:{COLOR_RESET}\n{settings_list}")
 
 
-def reset_settings(process, output_queue, zenoh_endpoint_ip=None):
+def reset_settings(process, output_queue, zenoh_endpoint_ip):
     for command in CMDS.keys():
         if len(CMDS[command]) == 2:
             if command == "zenoh-endpoint":
-                val = zenoh_endpoint_ip if zenoh_endpoint_ip else CMDS[command][1]
-            else:
-                val = CMDS[command][1]
+                val = f'tcp/{zenoh_endpoint_ip}:7447'
+                continue
+            val = CMDS[command][1]
         else:
             continue
         send_and_confirm_command(process, output_queue, command, val)
+
 
 def setup_settings(process, output_queue):    
     for command in CMDS.keys():
         val = CMDS[command][0]
         send_and_confirm_command(process, output_queue, command, val)
+
+
+def isolate_mac_addr(script_name):
+    """
+    Isolate the script name from the full path.
+    """
+    return script_name.split("/")[-1] if "/" in script_name else script_name
+
+def check_equal_mac_addr(mac_addr1, mac_addr2):
+    """
+    Check if two MAC addresses are equal based of hex value.
+    """
+    mac_addr1 = mac_addr1.replace(' ', '').replace("\n", '').lower().split(":")
+    mac_addr2 = mac_addr2.replace(' ', '').replace("\n", '').lower().split(":")
+    mac_addrs = [mac_addr1, mac_addr2]
+    for i, addr in enumerate(mac_addrs):
+        # deals with the line from pfr_ble_cli having the name of the device
+        if len(addr) == 7:
+            mac_addrs[i] = addr[1:]
+        elif len(addr) != 6:
+            return False
+    mac_addr1, mac_addr2 = mac_addrs[0], mac_addrs[1]
+    print(f"Comparing {mac_addr1} and {mac_addr2}")
+    for i in range(len(mac_addr1)):
+        try:
+            if int(mac_addr1[i], 16) != int(mac_addr2[i], 16):
+                return False
+        except ValueError:
+            raise Exception(f"Invalid MAC address format: either {mac_addr1[i]} or {mac_addr2[i]} is malformed.")
+    return True
+
 
 def connect_to_bluetooth_cli(process, output_queue):
     FOUND_ADAPTERS_LINES = ["found", "ble adapter"]
@@ -126,7 +165,6 @@ def connect_to_bluetooth_cli(process, output_queue):
 
     adapters_found_line = read_until_message(output_queue, FOUND_ADAPTERS_LINES, timeout=5)
     if adapters_found_line:
-        print("Adapter list started.")
         num_adapters = int(adapters_found_line[adapters_found_line.index(FOUND_ADAPTERS_LINES[0]) + len(FOUND_ADAPTERS_LINES[0]):adapters_found_line.index(FOUND_ADAPTERS_LINES[1])].strip())
         selected_adapter = None 
         if read_until_message(output_queue, ADAPTER_PROMPT, timeout=2):
@@ -157,13 +195,20 @@ def connect_to_bluetooth_cli(process, output_queue):
         print("Connecting brain board...\n")
 
         # Give the program an extra second to do the scan
-        motor_0_ble_output = read_until_message(output_queue, "motor_0_ble", 4   , print_output=True)
-        if motor_0_ble_output:
-            motor_in_list_to_connect = int(motor_0_ble_output[motor_0_ble_output.index("{") + 1:motor_0_ble_output.index("}")].strip())
+        _, mac_addr = read_bluetooth_status()
+        if mac_addr:
+            print(f"Using mac address {mac_addr} to connect to motor controller...")
+            motor_controller_output = read_until_message(output_queue, mac_addr, 4, print_output=True, compare_func=check_equal_mac_addr)
+        else:
+            print(f"{COLOR_YELLOW}Warning: No mac address found, using name to connect to motor controller.{COLOR_RESET}")
+            motor_controller_output = read_until_message(output_queue, "motor_0_ble", 4, print_output=True)
+        
+        if motor_controller_output:
+            motor_in_list_to_connect = int(motor_controller_output[motor_controller_output.index("{") + 1:motor_controller_output.index("}")].strip())
         else:
             process.terminate()
-            raise Exception("No valid motors found in bluetooth scan.")  
-                
+            raise Exception("No motors with correct MAC address found in bluetooth scan.")  
+        
         if read_until_message(output_queue, "enter a peripheral index", 1):
             time.sleep(0.2)
             print(f"Entering ble device {motor_in_list_to_connect} into prompt...")
@@ -174,18 +219,16 @@ def connect_to_bluetooth_cli(process, output_queue):
         
         if read_until_message(output_queue, CONNECTED_MSG, 5, print_output=True):
             time.sleep(1)
-            print("Connected successfully! Pinging motor_0_ble...")
+            print("Connected to motor controller CLI, verifying connection...\n")
             process.stdin.write(f"ping\n")
             time.sleep(1)
-            with open(BLUETOOTH_FILE_PATH, 'r') as f:
-                bluetooth_confirmed = int(f.read().strip())
-                print(f"Reading from {os.path.join(os.getcwd(), BLUETOOTH_FILE_PATH)}. Confimred is {bluetooth_confirmed}.")
-                if bluetooth_confirmed == 1:
-                    print("Connection established!\n")
-                    return True
-                else:
-                    print("Connection to wrong device! Restarting...\n")
-                    return False
+            bluetooth_confirmed = read_bluetooth_status()
+            if bluetooth_confirmed == 1:
+                print("Connection verified!\n")
+                return True
+            else:
+                print("Connection to wrong device! Restarting...\n")
+                return False
         else:
             print("Timeout in motor connection, restarting...\n")
             return False # connection timeout usually means it was just the wrong one
@@ -235,10 +278,10 @@ def convert_to_zenoh_ip(ip_str):
         try:
             ip_ints = [int(v) for v in ip_ints]
         except ValueError:
-            return ""
+            return "0.0.0.0"
         return ip_str
     else:
-        return ""
+        return "0.0.0.0"
 
 
 def loop_connection_attempts(mode):

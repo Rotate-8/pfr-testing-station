@@ -5,11 +5,17 @@ import subprocess
 from serial.tools import list_ports
 import sys
 import os
+from absl import app
+from absl import flags
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from start_menu import CLI_AUTOMATION_SCRIPT, TEST_STACK_SCRIPT
 
-
+flags.DEFINE_bool(
+    "currently_testing",
+    default=False,
+    help="Whether the user is currently testing the motor controller. Default is False."
+)   
 
 # CHANGE BACK BEFORE MONDAY
 BRAIN_BOARD_IDENTIFIER = "FT232R"
@@ -22,6 +28,7 @@ COLOR_RESET = '\033[0m'
 BLUETOOTH_FILE_PATH = f"bluetooth_connected.txt"
 CONNECTION_TEST_COMMAND = "pong"
 WIFI_SETUP_MSG = "enter \'wifi-connect\'"
+MAC_ADDR_MSG = "mac addr:"
 
 
 def run_command(command, cwd=None, capture_output=False, text=False):
@@ -96,6 +103,55 @@ def get_tmux_info():
     return pane_count, current_pane_index
 
 
+def write_bluetooth_status(bluetooth_connected=None, mac_addr=None):
+    """
+    Writes the Bluetooth connection status and MAC address to a file.
+    """
+    if bluetooth_connected is None and mac_addr is None:
+        raise ValueError("At least one of bluetooth_connected or mac_addr must be provided.")
+    if bluetooth_connected is None or mac_addr is None:
+        with open(BLUETOOTH_FILE_PATH, "a+") as f:
+            f.seek(0)
+            content = f.read().strip()
+
+            if bluetooth_connected is None:
+                bluetooth_connected = content.split("\n")[0].split("=")[-1]
+                try:
+                    int(bluetooth_connected)
+                except ValueError:
+                    bluetooth_connected = 0
+            elif mac_addr is None:
+                split_file = content.split("\n")
+                if len(split_file) == 2:
+                    print("Len of split file is 2")
+                    mac_addr = split_file[1].split("=")[-1]
+                elif len(split_file) == 1:
+                    print("Len of split file is 1")
+                    mac_addr = ''
+                else:
+                    raise ValueError("Invalid content in Bluetooth file. Expected format: 'connection=<value>' and 'mac_addr=<value>'")
+            f.truncate(0)
+            f.write(f"connection={bluetooth_connected}\nmac_addr={mac_addr}".replace("\x1b[0m", ""))
+            print(f"Written mac_addr: {mac_addr}")
+
+
+def read_bluetooth_status():
+    """
+    Reads the Bluetooth connection status and MAC address from a file.
+    Returns a tuple (bluetooth_connected, mac_addr).
+    """
+    if not os.path.isfile(BLUETOOTH_FILE_PATH):
+        return 0, None
+
+    with open(BLUETOOTH_FILE_PATH, "r") as f:
+        content = f.read().replace(' ', '').split('\n')
+        if len(content) != 2:
+            raise ValueError(f"Invalid content in Bluetooth file: {content}. Expected format: 'connection= <value>' and 'mac_addr= <value>'")
+        bluetooth_connected = int(content[0].split("=")[1].strip())
+        mac_addr = content[1].split("=")[1].strip() if len(content) >= 1 else None
+
+    return bluetooth_connected, mac_addr
+
 def monitor_serial_output_and_prompt_operations(port_name):
     """
     Continuously rseads and prints serial output from the specified port.
@@ -122,7 +178,15 @@ def monitor_serial_output_and_prompt_operations(port_name):
             line = ser.readline().decode('utf-8', errors='ignore').strip()
             if line:  # Only print if the line is not empty
                 print(line)
-                if WIFI_SETUP_MSG in line.lower():
+                line_lower = line.lower()
+                # if a new line comes in say bluetooth connected is false
+                if bluetooth_connected == 1:
+                    bluetooth_connected = 0
+                    print("Writing bluetooth connected status to file as 0")
+                    write_bluetooth_status(bluetooth_connected=bluetooth_connected)
+
+                # Check for specific messages and take actions
+                if WIFI_SETUP_MSG in line_lower:
                     if input("\nWould you like to automatically set up ESP32 settings and cerdentials in a new pane? (y/n): ").strip().lower() == 'y':
                         signal_name = 'BLE adjusted'
                         if "TMUX" not in os.environ:
@@ -140,20 +204,17 @@ def monitor_serial_output_and_prompt_operations(port_name):
                             signal_listener = subprocess.Popen(['tmux', 'wait-for', signal_name])
 
                 # save in a file whether or not the serial monitor confirms that a bluetooth device was connected
-                if CONNECTION_TEST_COMMAND in line.lower():
+                elif CONNECTION_TEST_COMMAND in line_lower:
                     print(f"Pong has successfully been recieved from {CLI_AUTOMATION_SCRIPT}")
                     bluetooth_connected = 1
                     write_time = time.time()
-                    with open(BLUETOOTH_FILE_PATH, "w") as f:
-                        f.write(str(bluetooth_connected))
-                        print("Wrote ble value.")
+                    write_bluetooth_status(bluetooth_connected=bluetooth_connected)
                     write_time = time.time() - write_time
-                    with open(BLUETOOTH_FILE_PATH, "r") as f:
-                        print(f"DEBUG: value was written at {os.path.join(os.getcwd(), BLUETOOTH_FILE_PATH)}")
-                elif bluetooth_connected == 1 and line != "":
-                    bluetooth_connected = 0
-                    with open(BLUETOOTH_FILE_PATH, "w") as f:
-                        f.write(str(bluetooth_connected))
+
+                elif MAC_ADDR_MSG in line_lower:
+                    mac_addr = line_lower[line_lower.index(MAC_ADDR_MSG) + len(MAC_ADDR_MSG):].strip()
+                    print(f"MAC address: {mac_addr}")
+                    write_bluetooth_status(mac_addr=mac_addr)
                 
                 if signal_listener is not None and signal_listener.poll() is not None:
                     if input("\nWould you like to test motor control stack? (y/n): ").strip().lower() == 'y':
@@ -192,7 +253,6 @@ def monitor_serial_output_and_prompt_operations(port_name):
             print("Serial port closed.")
 
 
-
 if __name__ == "__main__":
     try:
         instant_exit = False
@@ -215,6 +275,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"{COLOR_RED}ERROR:{e}{COLOR_RESET}")
     finally:
+        os.remove(BLUETOOTH_FILE_PATH) if os.path.isfile(BLUETOOTH_FILE_PATH) else None
         if not instant_exit:
             input("\nPress enter to return to main menu: ")
         sys.exit()

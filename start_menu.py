@@ -5,12 +5,19 @@ import os
 
 # Define the menu options and their corresponding placeholder actions
 
-menu_items = [
-    "Open serial monitor for ESP32",
-    "Upload and monitor code on ESP32",
-    "Test motor control stack",
-    "Reassign sensor I2C address",
-    "Clone and build pfr-motor-controllers github",
+default_menu_items = [
+    "Full motor controller bring-up and teleop",
+    "Adjust motor controller settings",
+    "Reassign encoder I2C address",
+    "Exit to terminal"
+]
+
+extra_menu_items = [
+    "Open serial monitor",
+    "Flash code and monitor",
+    "Clone and build motor controller repo",
+    "Open CLI and adjust settings for testing",
+    "Open CLI and adjust settings for use on robot",
     "Exit to terminal"
 ]
 
