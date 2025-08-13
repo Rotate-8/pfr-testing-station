@@ -7,10 +7,53 @@ import sys
 import os
 from absl import flags
 
-# sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-# from start_menu import CLI_AUTOMATION_SCRIPT, TEST_STACK_SCRIPT
-CLI_AUTOMATION_SCRIPT = "open_CLI_and_adjust_settings.py"
-TEST_STACK_SCRIPT = "test_stack.py"
+
+"""
+Opens a serial monitor for the ESP32-brain board.
+
+This script finds the ESP32-brain board's serial port and opens a serial monitor
+using PlatformIO CLI. It is intended for debugging and viewing output from the board.
+
+Author: Paras + Vouk  •  Date: 2025-8-6
+Project: Motor-Controller Station  •  Language: Python 3.12
+
+Usage-host must have PlatformIO CLI and pyserial installed:
+    $ python3 open_serial_monitor.py
+
+** IMPORTANT*******************************************************
+The code follows documentation guidelines (§SWE-061 / PEP 257
+Google format) so every public function and module begins with a clear
+72-char summary line, then a blank line, then extended detail.
+*******************************************************************"""
+# ──────────────────────────────────────────────────────────────────────────
+# Code Structure Diagram
+# -------------------------------------------------------------------------
+#
+#   ┌───────────────┐
+#   │  Constants &  │
+#   │ Configuration │
+#   └───────┬───────┘
+#           │
+#           ▼
+#   ┌─────────────────────────────┐
+#   │      Helper Functions       │
+#   │ ──────────────────────────  │
+#   │ run_command                 │
+#   │ find_brain_board_port       │
+#   │ get_tmux_info               │
+#   │ write_bluetooth_status      │
+#   │ is_tmux_pane_idle           │
+#   │ read_bluetooth_status       │
+#   │ monitor_serial_output_and_prompt_operations │
+#   └───────┬─────────────────────┘
+#           │
+#           ▼
+#   ┌─────────────────────────────┐
+#   │     Main Program Flow       │
+#   │ ──────────────────────────  │
+#   │ __main__                    │
+#   └─────────────────────────────┘
+# -------------------------------------------------------------------------
 
 flags.DEFINE_bool(
     "currently_testing",
@@ -34,8 +77,18 @@ MAC_ADDR_MSG = "mac addr:"
 
 def run_command(command, cwd=None, capture_output=False, text=False):
     """
-    Helper function to run a shell command and handle errors.
+    Runs a shell command and handles errors.
+
     If capture_output is True, output is returned; otherwise, it goes to console.
+    Args:
+        command (list): Command and arguments to run.
+        cwd (str, optional): Working directory for the command.
+        capture_output (bool): Whether to capture output.
+        text (bool): Whether to treat output as text.
+    Returns:
+        CompletedProcess: The result of subprocess.run.
+    Raises:
+        Exception: If the command fails or is not found.
     """
     print(f"\nExecuting command: {' '.join(command)}")
     try:
@@ -57,6 +110,13 @@ def run_command(command, cwd=None, capture_output=False, text=False):
 def find_brain_board_port(identifier):
     """
     Finds the serial port for the ESP32-brain board using 'pio device list --json-output'.
+
+    Args:
+        identifier (str): Unique identifier for the board (e.g., 'FT232R').
+    Returns:
+        str: Serial port name.
+    Raises:
+        Exception: If no matching device is found.
     """
     try:
         result = run_command(["pio", "device", "list", "--json-output"], capture_output=True, text=True)
@@ -90,7 +150,12 @@ def find_brain_board_port(identifier):
 
 
 def get_tmux_info():
-    """Gets the number of panes and the current pane index from tmux."""
+    """
+    Gets the number of panes and the current pane index from tmux.
+
+    Returns:
+        tuple: (pane_count, current_pane_index)
+    """
     # Get the total number of panes in the current window
     pane_count_cmd = ['tmux', 'display-message', '-p', '#{window_panes}']
     pane_count_result = subprocess.run(pane_count_cmd, capture_output=True, text=True, check=True)
@@ -106,7 +171,12 @@ def get_tmux_info():
 
 def write_bluetooth_status(bluetooth_connected=None, mac_addr=None, test_settings_applied=None):
     """
-    Writes the Bluetooth connection status and MAC address to a file.
+    Writes the Bluetooth connection status, MAC address, and test settings status to a file.
+
+    Args:
+        bluetooth_connected (int, optional): Connection status (0/1).
+        mac_addr (str, optional): MAC address string.
+        test_settings_applied (int, optional): Test settings status (0/1).
     """
     if bluetooth_connected is None and mac_addr is None and test_settings_applied is None:
         raise ValueError("At least one of bluetooth_connected or mac_addr must be provided.")
@@ -145,7 +215,11 @@ def write_bluetooth_status(bluetooth_connected=None, mac_addr=None, test_setting
 def is_tmux_pane_idle(pane_id):
     """
     Checks if the current tmux pane is running an idle shell.
-    Returns True if idle, False otherwise.
+
+    Args:
+        pane_id (int): The pane index to check.
+    Returns:
+        bool: True if idle, False otherwise.
     """
     try:
         pane_id = int(pane_id)  # Ensure pane_id is an integer
@@ -170,8 +244,10 @@ def is_tmux_pane_idle(pane_id):
 
 def read_bluetooth_status():
     """
-    Reads the Bluetooth connection status and MAC address from a file.
-    Returns a tuple (bluetooth_connected, mac_addr).
+    Reads the Bluetooth connection status, MAC address, and test settings status from a file.
+
+    Returns:
+        tuple: (bluetooth_connected, mac_addr, test_settings_applied)
     """
     if not os.path.isfile(BLUETOOTH_FILE_PATH):
         return 0, "", 0 
@@ -188,11 +264,12 @@ def read_bluetooth_status():
 
 def monitor_serial_output_and_prompt_operations(port_name):
     """
-    Continuously rseads and prints serial output from the specified port.
+    Continuously reads and prints serial output from the specified port.
+
+    Also listens for specific messages to trigger automation scripts and test stack.
 
     Args:
         port_name (str): The serial port name (e.g., '/dev/ttyUSB0' or 'COMx').
-        baud_rate (int): The baud rate for serial communication (e.g., 115200).
     """
     try:
         bluetooth_connected = 0
