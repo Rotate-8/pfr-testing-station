@@ -207,7 +207,7 @@ def upload_prebuilt_binary(port, project_path, build_env_name):
         "--port", port,
         "--baud", str(UPLOAD_BAUD_RATE),
         "--before", "default_reset",
-        "--after", "no_reset" # no reset in order to be consistent across boards that can and cant be remotely reset
+        "--after", "no_reset", # no reset in order to be consistent across boards that can and cant be remotely reset
         "write_flash",
         "-z",
         "--flash_mode", str(FLASH_MODE),
@@ -250,7 +250,7 @@ def main():
 
         upload_project(brain_board_port, PIO_PROJECT_PATH, PIO_BUILD_ENV_NAME)
 
-        input("Reset the board and press enter to continue: ")
+        print("\nReset the board in order to start monitoring new firmware.")
         
         monitor_serial_output_and_prompt_operations(brain_board_port)
 
