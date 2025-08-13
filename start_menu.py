@@ -1,4 +1,6 @@
+#!/usr/bin/env python3
 import curses
+from curses import textpad
 import sys
 import subprocess
 import os
@@ -16,14 +18,12 @@ initial_menu = [
 
 menu_items_1 = [
     "Upload and monitor code on ESP32",
-    "Test motor control stack",
-    "Exit"
+    "Test motor control stack"
 ]
 
 menu_items_2 = [
     "Open serial monitor for ESP32",
-    "Open Bluetooth CLI for Motor Controller",
-    "Exit"
+    "Open Bluetooth CLI for Motor Controller"
 ]
 
 # Dropdowns: which top index has which submenu list
@@ -40,13 +40,12 @@ top_actions = {
 }
 
 # Map (top_idx, sub_idx) -> script filename (bare names so tmux/cwd logic works)
+# NOTE: sub_idx here refers to the ORIGINAL submenu index (0-based), not including the "Back" row.
 submenu_scripts = {
     (0, 0): "flash_code_and_monitor.py",
     (0, 1): "test_stack.py",
-    (0, 2): "exit",
-    (2, 0): "open_serial_monitor.py",  # (label says serial monitor; mapping kept as you set)
-    (2, 1): "open_ble.py",
-    (2, 2): "exit"
+    (2, 0): "open_serial_monitor.py",
+    (2, 1): "open_ble.py"
 }
 
 # Adjust this path as needed
@@ -87,7 +86,9 @@ def run_external_script(stdscr, script_name: str):
     os.system('clear')  # clear terminal ahead of calling subprocess
 
     # IMPORTANT: tmux branches expect bare filenames and cwd=SCRIPTS_DIR
-    # We normalized submenu_scripts to bare filenames so this works unchanged.
+    if script_name == "exit":
+        # Treat "Exit" entries in submenus as exit of the whole program
+        sys.exit(0)
 
     if "monitor" in script_name:
         # serial/flash monitor behavior (tmux panes)
@@ -133,7 +134,7 @@ def run_external_script(stdscr, script_name: str):
     stdscr.refresh()
 
 # ---------------------------
-# UI helpers
+# UI helpers (reworked: submenu opens in its own panel)
 # ---------------------------
 
 def _validate_wiring():
@@ -149,48 +150,91 @@ def _validate_wiring():
         if ti < 0 or ti >= len(initial_menu):
             raise ValueError(f"top_actions index out of range: {ti}")
 
-def _draw_text(stdscr, y, x, text, selected=False):
+def _attr_for(stdscr, selected: bool):
     if curses.has_colors():
-        stdscr.attron(curses.color_pair(1 if selected else 2))
-    stdscr.addstr(y, x, text)
-    if curses.has_colors():
-        stdscr.attroff(curses.color_pair(1 if selected else 2))
+        return curses.color_pair(1) if selected else curses.color_pair(2)
+    # Fallback: reverse for selected, normal otherwise
+    return curses.A_REVERSE if selected else curses.A_NORMAL
 
-def _draw_ui(stdscr, current_top_idx, in_submenu, current_sub_idx):
+def _draw_main(stdscr, current_top_idx):
     stdscr.clear()
     h, w = stdscr.getmaxyx()
-
-    # Title
     title = "Motor Controller Workstation"
-    y_title = max(1, h // 2 - len(initial_menu) // 2 - 2)
+    y_title = max(1, h // 2 - len(initial_menu) // 2 - 3)
     x_title = max(0, w // 2 - len(title) // 2)
     stdscr.addstr(y_title, x_title, title, curses.A_BOLD)
 
-    # Top-level menu
-    top_start_y = y_title + 2
+    
+
+    top_start_y = y_title + 3
     for idx, item in enumerate(initial_menu):
         has_dropdown = idx in submenus and len(submenus[idx]) > 0
         suffix = " ▶" if has_dropdown else ""
         label = item + suffix
         y = top_start_y + idx
-        x = max(1, w // 2 - len(label) // 2)
-        _draw_text(stdscr, y, x, label, selected=(idx == current_top_idx and not in_submenu))
+        x = max(2, w // 2 - len(label) // 2)
+        stdscr.addstr(y, x, label, _attr_for(stdscr, selected=(idx == current_top_idx)))
 
-    # Dropdown panel
-    if in_submenu and current_top_idx in submenus:
-        items = submenus[current_top_idx]
-        top_item_y = top_start_y + current_top_idx
-        x_anchor = max(1, w // 2 - len(initial_menu[current_top_idx]) // 2)
+    stdscr.refresh()
 
-        drop_start_y = top_item_y + 1
-        if drop_start_y + len(items) >= h - 1:
-            drop_start_y = max(1, top_item_y - len(items) - 1)
+def _draw_submenu_panel(stdscr, top_idx, current_sub_display_idx):
+    """
+    Draws a centered panel for the submenu:
+      Row 0 is always '← Back to Main Menu' (not part of submenu_scripts mapping).
+      The rest mirror submenus[top_idx].
+    """
+    stdscr.clear()
+    h, w = stdscr.getmaxyx()
 
-        for j, s in enumerate(items):
-            y = drop_start_y + j
-            x = x_anchor
-            label = f"  • {s}"
-            _draw_text(stdscr, y, x, label, selected=(j == current_sub_idx))
+    header = f"{initial_menu[top_idx]} — Submenu"
+    items = ["← Back to Main Menu"] + submenus.get(top_idx, [])
+
+    # Compute panel size based on content
+    max_len = max(len(s) for s in items + [header])
+    pad_w = 6
+    pad_h = 6
+    box_w = min(w - 4, max_len + pad_w)
+    box_h = min(h - 4, len(items) + pad_h)
+
+    start_y = (h - box_h) // 2
+    start_x = (w - box_w) // 2
+    end_y = start_y + box_h - 1
+    end_x = start_x + box_w - 1
+
+    # Draw border rectangle
+    textpad.rectangle(stdscr, start_y, start_x, end_y, end_x)
+
+    # Title centered
+    title_y = start_y + 1
+    stdscr.addstr(title_y, start_x + (box_w - len(header)) // 2, header, curses.A_BOLD)
+
+    # Help line
+    
+
+   # Items (centered)
+    list_start_y = title_y + 3
+    inner_w = box_w - 4  # inside the border (2px padding on each side)
+
+    for i, s in enumerate(items):
+        y = list_start_y + i
+        if y >= end_y:
+            break
+
+        # Build the display label (no left padding; center it instead)
+        display = "← Back to Main Menu" if i == 0 else f"{s}"
+
+        # Truncate if too long for the inner width
+        if len(display) > inner_w:
+            display = display[:inner_w]
+
+    # Center within the inner box
+        x = start_x + 2 + (inner_w - len(display)) // 2
+
+        stdscr.addstr(
+            y, x, display,
+            _attr_for(stdscr, selected=(i == current_sub_display_idx))
+        )
+
 
     stdscr.refresh()
 
@@ -203,13 +247,13 @@ def _wrap(idx, n):
 
 def main(stdscr):
     """
-    Curses UI with dropdown submenus for indices 0 and 2.
+    Curses UI with separate-panel submenus for indices 0 and 2.
 
     Controls:
       Up/Down: move selection (wraps)
       Enter/Right: open submenu (if available) or run top-level action
-      Left/Esc/Backspace: close submenu
-      Enter in submenu: run submenu action
+      Left/Esc/Backspace: close submenu panel and return to main
+      Enter in submenu: run submenu action (row 0 is Back)
       q: quit
     """
     _validate_wiring()
@@ -227,14 +271,14 @@ def main(stdscr):
         curses.init_pair(2, curses.COLOR_WHITE, curses.COLOR_BLACK)  # normal
 
     current_top_idx = 0
-    current_sub_idx = 0
+    current_sub_display_idx = 0  # includes "Back" at index 0
     in_submenu = False
 
     def open_submenu_if_available():
-        nonlocal in_submenu, current_sub_idx
+        nonlocal in_submenu, current_sub_display_idx
         if current_top_idx in submenus and submenus[current_top_idx]:
             in_submenu = True
-            current_sub_idx = 0
+            current_sub_display_idx = 0  # default to Back row
             return True
         return False
 
@@ -247,16 +291,28 @@ def main(stdscr):
         return None
 
     def run_submenu_action():
-        items = submenus.get(current_top_idx, [])
-        if not items:
-            return
-        script = submenu_scripts.get((current_top_idx, current_sub_idx))
+        """
+        current_sub_display_idx = 0 means Back to Main.
+        Otherwise map to original submenu index (display_idx - 1).
+        """
+        if current_sub_display_idx == 0:
+            return "back"
+
+        original_idx = current_sub_display_idx - 1
+        script = submenu_scripts.get((current_top_idx, original_idx))
+        if script == "exit":
+            return "exit"
         if isinstance(script, str) and script:
             run_external_script(stdscr, script)
+        return None
 
     # Main loop
     while True:
-        _draw_ui(stdscr, current_top_idx, in_submenu, current_sub_idx)
+        if not in_submenu:
+            _draw_main(stdscr, current_top_idx)
+        else:
+            _draw_submenu_panel(stdscr, current_top_idx, current_sub_display_idx)
+
         key = stdscr.getch()
 
         if key in (ord('q'),):
@@ -274,15 +330,20 @@ def main(stdscr):
                     if result == "exit":
                         break
         else:
+            submenu_len = 1 + len(submenus.get(current_top_idx, []))  # 1 for Back row
             if key == curses.KEY_UP:
-                current_sub_idx = _wrap(current_sub_idx - 1, len(submenus[current_top_idx]))
+                current_sub_display_idx = _wrap(current_sub_display_idx - 1, submenu_len)
             elif key == curses.KEY_DOWN:
-                current_sub_idx = _wrap(current_sub_idx + 1, len(submenus[current_top_idx]))
-            elif key in (curses.KEY_LEFT, 27, curses.KEY_BACKSPACE, 127, 8):
+                current_sub_display_idx = _wrap(current_sub_display_idx + 1, submenu_len)
+            elif key in (curses.KEY_LEFT, 27, curses.KEY_BACKSPACE, 127, 8):  # Left/Esc/Backspace
                 in_submenu = False
             elif key in (curses.KEY_ENTER, 10, 13):
-                run_submenu_action()
-                # Stay open after action; set `in_submenu = False` if you prefer auto-close
+                result = run_submenu_action()
+                if result == "back":
+                    in_submenu = False
+                elif result == "exit":
+                    break
+                # Otherwise stay in submenu after running the script
 
 # Entry point
 if __name__ == '__main__':
@@ -292,6 +353,9 @@ if __name__ == '__main__':
         print(f"Curses error: {e}")
         print("This script requires a terminal that supports curses.")
         print("Try running it in a standard Linux terminal or within 'screen'.")
+    except SystemExit:
+        # Allow clean exits triggered by submenu "Exit"
+        pass
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         sys.exit(1)
