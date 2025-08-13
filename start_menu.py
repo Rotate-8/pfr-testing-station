@@ -35,8 +35,8 @@ top_actions = {
 submenu_scripts = {
     (0,0): "scripts/flash_code_and_monitor.py",
     (0,1): "scripts/test_stack.py", 
-    (0,3): "scripts/open_CLI_and_adjust_settings.py",
-    (0,4): "scripts/open_ble.py"
+    (2,0): "scripts/open_CLI_and_adjust_settings.py",
+    (2,1): "scripts/open_ble.py"
 }
  # Adjust this path as needed
 SCRIPTS_DIR = "scripts"
