@@ -95,9 +95,7 @@ def run_external_script(stdscr, script_name: str):
         if "TMUX" not in os.environ:
             session_name = "serial_monitor_session"
             tmux_cmd = (
-                f'tmux new-session -d -s {session_name} '
-                f'"bash -c \\"clear; echo \'Click Ctrl+B followed by arrow keys to navigate windows. '
-                f'\\nPress Ctrl+C in script window to return to menu.\'; exec bash\\"" && '
+                f'tmux new-session -d -s {session_name} "bash -c \\"clear; echo \'Click Ctrl+B followed by arrow keys to navigate windows. \nPress Ctrl+C in script window to return to menu.\'; exec bash\\"" && '
                 f'tmux split-window -h -t {session_name} "cd {SCRIPTS_DIR} && python3 {script_name}; tmux kill-session -t {session_name}" && '
                 f'tmux select-pane -t {session_name}:0.1 && '
                 f'tmux attach-session -t {session_name}'
