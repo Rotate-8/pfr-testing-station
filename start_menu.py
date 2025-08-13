@@ -5,19 +5,13 @@ import os
 
 # Define the menu options and their corresponding placeholder actions
 
-default_menu_items = [
-    "Full motor controller bring-up and teleop",
-    "Adjust motor controller settings",
-    "Reassign encoder I2C address",
-    "Exit to terminal"
-]
-
-extra_menu_items = [
-    "Open serial monitor",
-    "Flash code and monitor",
-    "Clone and build motor controller repo",
-    "Open CLI and adjust settings for testing",
-    "Open CLI and adjust settings for use on robot",
+menu_items = [
+    "Open serial monitor for ESP32",
+    "Upload and monitor code on ESP32",
+    "Test motor control stack",
+    "Reassign sensor I2C address",
+    "Clone and build pfr-motor-controllers github",
+    "Open Bluetooth CLI for Motor Controller",
     "Exit to terminal"
 ]
 
@@ -30,13 +24,15 @@ TEST_STACK_SCRIPT = "test_stack.py"
 BURN_ADDR_SCRIPT = "burn_addr.py"
 CLONE_AND_BUILD_SCRIPT = "clone_and_build.py"
 CLI_AUTOMATION_SCRIPT = "open_CLI_and_adjust_settings.py"
+OPEN_BLE_SCRIPT = "open_ble.py"
 
 scripts_list = [
     SERIAL_MONITOR_SCRIPT,
     FLASH_CODE_SCRIPT,
     TEST_STACK_SCRIPT,
     BURN_ADDR_SCRIPT,
-    CLONE_AND_BUILD_SCRIPT
+    CLONE_AND_BUILD_SCRIPT,
+    OPEN_BLE_SCRIPT
 ]
 
 def run_external_script(stdscr, script_name):
@@ -150,7 +146,7 @@ def main(stdscr):
             current_row_idx = min((current_row_idx + 1), len(menu_items) - 1)
         elif key == curses.KEY_ENTER or key in [10, 13]: # Enter key
             # Execute the selected action
-            if current_row_idx <= 4:
+            if current_row_idx <= 5:
                 stdscr.clear()
                 run_external_script(stdscr, scripts_list[current_row_idx])
             else:
