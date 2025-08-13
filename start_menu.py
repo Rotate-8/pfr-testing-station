@@ -24,7 +24,7 @@ TEST_STACK_SCRIPT = "test_stack.py"
 BURN_ADDR_SCRIPT = "burn_addr.py"
 CLONE_AND_BUILD_SCRIPT = "clone_and_build.py"
 CLI_AUTOMATION_SCRIPT = "open_CLI_and_adjust_settings.py"
-OPEN_BLE_SCRIPT = "open_ble.py"
+OPEN_BLE_SCRIPT = "open_CLI_and_adjust_settings_UPDATED.py "
 
 scripts_list = [
     SERIAL_MONITOR_SCRIPT,
