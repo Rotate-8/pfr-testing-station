@@ -44,7 +44,7 @@ submenu_scripts = {
     (0, 0): "flash_code_and_monitor.py",
     (0, 1): "test_stack.py",
     (0, 2): "exit",
-    (2, 0): "open_CLI_and_adjust_settings.py",  # (label says serial monitor; mapping kept as you set)
+    (2, 0): "open_serial_monitor.py",  # (label says serial monitor; mapping kept as you set)
     (2, 1): "open_ble.py",
     (2, 2): "exit"
 }
