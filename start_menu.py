@@ -5,6 +5,22 @@ import os
 
 # Define the menu options and their corresponding placeholder actions
 
+initial_menu = [
+    "Flash and Test ESP32 with auto BLE",
+    "Reassign sensor I2C address",
+    "More..."
+]
+
+menu_items_1 = [
+    "Upload and monitor code on ESP32",
+    "Test motor control stack"
+]
+
+menu_items_2 = [
+    "Open serial monitor for ESP32",
+    "Open Bluetooth CLI for Motor Controller"
+]
+
 menu_items = [
     "Open serial monitor for ESP32",
     "Upload and monitor code on ESP32",
@@ -116,9 +132,9 @@ def main(stdscr):
         stdscr.addstr(y_title, x_title, title, curses.A_BOLD)
 
         # Display menu items
-        for idx, item in enumerate(menu_items):
+        for idx, item in enumerate(initial_menu):
             x = w // 2 - len(item) // 2
-            y = h // 2 - len(menu_items) // 2 + idx
+            y = h // 2 - len(initial_menu) // 2 + idx
             if idx == current_row_idx:
                 # Highlight the selected item
                 if curses.has_colors():
