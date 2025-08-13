@@ -12,7 +12,7 @@ import os
 initial_menu = [
     "Flash and Test ESP32 with auto BLE",  # index 0 -> dropdown (menu_items_1)
     "Reassign sensor I2C address",         # index 1 -> direct action
-    "More...",                             # index 2 -> dropdown (menu_items_2)
+    "More",                             # index 2 -> dropdown (menu_items_2)
     "Exit"                                 # index 3 -> exit
 ]
 
