@@ -8,6 +8,7 @@ import queue
 import threading
 from absl import app
 from absl import flags
+from flash_code_and_monitor import find_files_in_incomplete_directory
 
 flags.DEFINE_string(
     "mode",
@@ -25,6 +26,8 @@ flags.DEFINE_bool(
     help="Whether to automatically adjust settings once in CLI."
 )
 
+motor_controller_project_directory = "/r8/pfr-motor-controllers"
+
 rust_project_directory = "/r8/pfr-rust-nodes1"
 ble_cmd = ["cargo", "run", "-p", "pfr_ble_cli"]
 
@@ -39,12 +42,12 @@ COLOR_RESET = '\033[0m'
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.connect(("8.8.8.8", 80))
 CMDS = {
-        "zenoh-endpoint": [f"tcp/{s.getsockname()[0]}:7447", f"udp/10.50.50.1:7777"],
+        "zenoh-endpoint": [f"tcp/{s.getsockname()[0]}:7447"],
         "wifi-ssid": ["twistedfields"],
         "wifi-pass": ["alwaysbekind"],
-        "steer-zero-on-boot": ["0", "1"],
-        "drive-motor-control-type": ["torque", "linear velocity"],
-        "steer-motor-control-type": ["torque", "position"]
+        "steer-zero-on-boot": ["0"],
+        "drive-motor-control-type": ["torque"],
+        "steer-motor-control-type": ["torque"]
     }
 
 def read_until_message(q, messages, timeout, print_output=False, compare_func=None):
@@ -114,16 +117,15 @@ def send_and_confirm_command(process, output_queue, setting, val):
 
 
 def reset_settings(process, output_queue, zenoh_endpoint_addr=None):
-    for command in CMDS.keys():
-        if len(CMDS[command]) == 2:
-            if zenoh_endpoint_addr and command == "zenoh-endpoint":
-                val = zenoh_endpoint_addr
+    settings_file = find_files_in_incomplete_directory("settings.yaml", motor_controller_project_directory, subdir='motor_controller')
+    print(f"Using settings file: {settings_file}")
+    with open(settings_file, 'r') as f:
+        for line in f:
+            if line.startswith("#") or not line.strip():
                 continue
-            else:
-                val = CMDS[command][1]
-        else:
-            continue
-        send_and_confirm_command(process, output_queue, command, val)
+            split_line = line.replace(' ', '').split(":")
+            if len(split_line) == 2:
+                send_and_confirm_command(process, output_queue, split_line[0], split_line[1])
 
 
 def setup_settings(process, output_queue):    
@@ -383,12 +385,15 @@ def main(argv):
     except Exception as e:
         print(f"{COLOR_RED}\nERROR: {e}{COLOR_RESET}")
     finally:
-        # A good practice is to make sure the process is closed,
-        # even if an error occurs.
+        # Only check test readiness if process is still running
+        if (
+            os.path.exists(BLUETOOTH_FILE_PATH)
+            and 'process' in locals()
+            and process.poll() is None
+            and motor_controller_test_ready(process, output_queue)
+        ):
+            write_bluetooth_status(test_settings_applied=1)
         if not instant_exit:
-            if os.path.exists(BLUETOOTH_FILE_PATH) and motor_controller_test_ready(process, output_queue):
-                print("Motor controller test ready, writing bluetooth status to file.")
-                write_bluetooth_status(test_settings_applied=1)
             input("\nPress enter to return: ")
         if 'process' in locals() and process.poll() is None:
             process.kill()
