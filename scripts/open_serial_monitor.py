@@ -7,6 +7,9 @@ import sys
 import os
 from absl import flags
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from start_menu import CLI_AUTOMATION_SCRIPT, TEST_STACK_SCRIPT
+
 
 """
 Opens a serial monitor for the ESP32-brain board.
@@ -61,9 +64,7 @@ flags.DEFINE_bool(
     help="Whether the user is currently testing the motor controller. Default is False."
 )   
 
-# CHANGE BACK BEFORE MONDAY
 BRAIN_BOARD_IDENTIFIER = "FT232R"
-# BRAIN_BOARD_IDENTIFIER = "USB Single Serial"
 
 COLOR_RED = '\033[91m'
 COLOR_YELLOW = '\033[93m'

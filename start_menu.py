@@ -5,12 +5,33 @@ import sys
 import subprocess
 import os
 
+# Adjust this path as needed
+SCRIPTS_DIR = "scripts"
+
+# (Keeping your named constants; used by run_external_script logic)
+SERIAL_MONITOR_SCRIPT = "open_serial_monitor.py"
+FLASH_CODE_SCRIPT =  "flash_code_and_monitor.py"
+TEST_STACK_SCRIPT = "test_stack.py"
+BURN_ADDR_SCRIPT = "burn_addr.py"
+CLONE_AND_BUILD_SCRIPT = "clone_and_build.py"
+CLI_AUTOMATION_SCRIPT = "open_CLI_and_adjust_settings.py"
+
+scripts_list = [
+    SERIAL_MONITOR_SCRIPT,
+    FLASH_CODE_SCRIPT,
+    TEST_STACK_SCRIPT,
+    BURN_ADDR_SCRIPT,
+    CLONE_AND_BUILD_SCRIPT,
+    CLI_AUTOMATION_SCRIPT
+]
+
+
 # ---------------------------
 # Menu model (kept from your file, with small fixes)
 # ---------------------------
 
 initial_menu = [
-    "Flash and Test ESP32 with auto BLE",  # index 0 -> dropdown (menu_items_1)
+    "Flash and Test ESP32",  # index 0 -> dropdown (menu_items_1)
     "Reassign sensor I2C address",         # index 1 -> direct action
     "More",                             # index 2 -> dropdown (menu_items_2)
     "Exit"                                 # index 3 -> exit
@@ -45,33 +66,12 @@ top_actions = {
 # Map (top_idx, sub_idx) -> script filename (bare names so tmux/cwd logic works)
 # NOTE: sub_idx here refers to the ORIGINAL submenu index (0-based), not including the "Back" row.
 submenu_scripts = {
-    (0, 0): "flash_code_and_monitor.py",
-    (0, 1): "test_stack.py",
-    (2, 0): "open_serial_monitor.py",
-    (2, 1): "open_ble.py"
+    (0, 0): FLASH_CODE_SCRIPT,
+    (0, 1): TEST_STACK_SCRIPT,
+    (2, 0): SERIAL_MONITOR_SCRIPT,
+    (2, 1): CLI_AUTOMATION_SCRIPT
 }
 
-
-# Adjust this path as needed
-SCRIPTS_DIR = "scripts"
-
-# (Keeping your named constants; used by run_external_script logic)
-SERIAL_MONITOR_SCRIPT = "open_serial_monitor.py"
-FLASH_CODE_SCRIPT =  "flash_code_and_monitor.py"
-TEST_STACK_SCRIPT = "test_stack.py"
-BURN_ADDR_SCRIPT = "burn_addr.py"
-CLONE_AND_BUILD_SCRIPT = "clone_and_build.py"
-CLI_AUTOMATION_SCRIPT = "open_CLI_and_adjust_settings.py"
-OPEN_BLE_SCRIPT = "open_ble.py"
-
-scripts_list = [
-    SERIAL_MONITOR_SCRIPT,
-    FLASH_CODE_SCRIPT,
-    TEST_STACK_SCRIPT,
-    BURN_ADDR_SCRIPT,
-    CLONE_AND_BUILD_SCRIPT,
-    OPEN_BLE_SCRIPT
-]
 
 # ---------------------------
 # Execution helpers (kept behavior)
