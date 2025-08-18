@@ -47,7 +47,8 @@ menu_items_1 = [
 
 menu_items_2 = [
     "Open serial monitor for ESP32",
-    "Open Bluetooth CLI for Motor Controller"
+    "Open Bluetooth CLI for Motor Controller",
+    "Open Zenoh CLI for Motor Controller"
 ]
 
 # Dropdowns: which top index has which submenu list
