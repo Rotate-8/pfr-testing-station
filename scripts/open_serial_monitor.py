@@ -74,6 +74,7 @@ BLUETOOTH_FILE_PATH = f"bluetooth_connected.txt"
 CONNECTION_TEST_COMMAND = "pong"
 WIFI_SETUP_MSG = "enter \'wifi-connect\'"
 MAC_ADDR_MSG = "mac addr:"
+READY_MESSAGE = "state: ready"
 
 
 def run_command(command, cwd=None, capture_output=False, text=False):
@@ -324,12 +325,13 @@ def monitor_serial_output_and_prompt_operations(port_name):
                     mac_addr = line_lower[line_lower.index(MAC_ADDR_MSG) + len(MAC_ADDR_MSG):].strip()
                     write_bluetooth_status(mac_addr=mac_addr)
 
-            if read_bluetooth_status()[-1] == '1':
+            if read_bluetooth_status()[-1] == '1' or READY_MESSAGE in line.lower():
                 if input("\nWould you like to test motor control stack? (y/n): ").strip().lower() == 'y':
+                    run_script_command = f'cd {os.getcwd()} && python3 {TEST_STACK_SCRIPT}'
                     if "TMUX" not in os.environ:
                         session_name = "test_motor_session"
                         tmux_cmd = (
-                            f'tmux new-session -d -s {session_name} "python3 {TEST_STACK_SCRIPT}; tmux kill-session -t {session_name}" && '
+                            f'tmux new-session -d -s {session_name} "{run_script_command}; tmux kill-session -t {session_name}" && '
                             f'tmux attach-session -t {session_name}'
                         )
                         os.system(tmux_cmd)
@@ -337,16 +339,21 @@ def monitor_serial_output_and_prompt_operations(port_name):
                         tmux_panes, pane_index = get_tmux_info()
                         if tmux_panes == 2 and is_tmux_pane_idle((pane_index + 1) % 2):
                             tmux_cmd = (
-                                f'tmux select-pane -t {(pane_index + 1) % 2} && '
-                                f'"python3 {TEST_STACK_SCRIPT}"'
+                                f"tmux select-pane -t {(pane_index + 1) % 2} && "
+                                f"tmux send-keys -t {(pane_index + 1) % 2} '{run_script_command}' C-m"
                             )
                         else:
                             print(f"{COLOR_YELLOW}Warning: Opening new window for test stack script.{COLOR_RESET}")
                             tmux_cmd = (
                             f'tmux split-window -h'
-                            f'"python3 {TEST_STACK_SCRIPT}; exit"'
+                            f'"{run_script_command}"'
                             )
                         subprocess.run(tmux_cmd, shell=True)
+                        print("Opening test stack script in a new tmux pane. Resuming monitoring: \n")
+                        write_bluetooth_status(test_settings_applied=0)
+                else:
+                    print("Skipping motor control stack test, monitoring resuming: \n")
+                    write_bluetooth_status(test_settings_applied=0)
 
     except serial.SerialException as e:
         print(f"Error: Could not open serial port {port_name}. {e}")
@@ -364,6 +371,9 @@ if __name__ == "__main__":
     try:
         instant_exit = False
 
+        # This file doubles as a lock file that shows this script is running
+        write_bluetooth_status(bluetooth_connected=0, mac_addr="", test_settings_applied=0)
+
         default_port = find_brain_board_port(BRAIN_BOARD_IDENTIFIER)
         
         if default_port is None:
@@ -375,9 +385,6 @@ if __name__ == "__main__":
             port_to_use = port_input
         else:
             port_to_use = default_port
-
-        # This file doubles as a lock file that shows this script is running
-        write_bluetooth_status(bluetooth_connected=0, mac_addr="", test_settings_applied=0)
 
         monitor_serial_output_and_prompt_operations(port_to_use)
     except KeyboardInterrupt:

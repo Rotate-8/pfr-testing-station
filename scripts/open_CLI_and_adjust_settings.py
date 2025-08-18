@@ -131,20 +131,20 @@ def setup_settings(process, output_queue):
         val = CMDS[command][0]
         send_and_confirm_command(process, output_queue, command, val)
 
-
-def isolate_mac_addr(script_name):
+def isolate_mac_addr(mac_addr_line):
     """
     Isolate the script name from the full path.
     """
-    return script_name.split("/")[-1] if "/" in script_name else script_name
-
+    if '|' in mac_addr_line:
+        mac_addr_line = mac_addr_line.split('|')[-1]
+    return mac_addr_line.strip()
 
 def check_equal_mac_addr(mac_addr1, mac_addr2):
     """
     Check if two MAC addresses are equal based of hex value.
     """
-    mac_addr1 = mac_addr1.replace(' ', '').replace("\n", '').lower().split(":")
-    mac_addr2 = mac_addr2.replace(' ', '').replace("\n", '').lower().split(":")
+    mac_addr1 = isolate_mac_addr(mac_addr1).replace(' ', '').replace("\n", '').lower().split(":")
+    mac_addr2 = isolate_mac_addr(mac_addr2).replace(' ', '').replace("\n", '').lower().split(":")
     mac_addrs = [mac_addr1, mac_addr2]
     for i, addr in enumerate(mac_addrs):
         # deals with the line from pfr_ble_cli having the name of the device
@@ -323,7 +323,6 @@ def motor_controller_test_ready(process, output_queue):
     It will open a tmux session and run the test script.
     """
     for command in CMDS.keys():
-        print(f"Sending command to motor controller: settings {command}")
         process.stdin.write(f"settings {command}\n")
         time.sleep(0.2)
         while not output_queue.empty():

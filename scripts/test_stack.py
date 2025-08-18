@@ -3,7 +3,7 @@ import sys
 import subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from start_menu import CLI_AUTOMATION_SCRIPT
+from start_menu import ZENOH_AUTOMATION_SCRIPT
 
 BRINGUP_CMD  = 'ros2 launch pfr_launch trike-without-teleop-bringup.launch.yaml'
 TELEOP_CMD   = 'ros2 run pfr_teleop pfr_teleop'
@@ -54,7 +54,7 @@ def main():
         # 5) prompt user as to whether they want to reset motor controller settings
         if input("\nWould you like to change motor controller settings back to standard? (y/n): ").lower().strip() == "y":
             subprocess.run(
-            ['python3', CLI_AUTOMATION_SCRIPT, '--mode=zenoh', '--reset_settings'],
+            ['python3', ZENOH_AUTOMATION_SCRIPT, '--mode=zenoh', '--reset_settings'],
             check=True,
             capture_output=False,
             )
