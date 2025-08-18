@@ -8,7 +8,7 @@ import os
 from absl import flags
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from start_menu import CLI_AUTOMATION_SCRIPT, TEST_STACK_SCRIPT
+from start_menu import BLE_AUTOMATION_SCRIPT, TEST_STACK_SCRIPT
 
 
 """
@@ -304,19 +304,17 @@ def monitor_serial_output_and_prompt_operations(port_name):
                         if "TMUX" not in os.environ:
                             session_name = "bluetooth cli session"
                             tmux_cmd = (
-                                f'tmux new-session -d -s {session_name} "python3 {CLI_AUTOMATION_SCRIPT}; tmux kill-session -t {session_name}" && '
+                                f'tmux new-session -d -s {session_name} "python3 {BLE_AUTOMATION_SCRIPT}; tmux kill-session -t {session_name}" && '
                                 f'tmux attach-session -t {session_name}'
                             )
                             os.system(tmux_cmd)
                         else:
-                            if not os.path.isfile(CLI_AUTOMATION_SCRIPT):
-                                raise Exception(f"Bluetooth automation script named {CLI_AUTOMATION_SCRIPT} not found.")
-                            tmux_cmd = f'tmux split-window -v "python3 {CLI_AUTOMATION_SCRIPT}; exit"'
+                            tmux_cmd = f'tmux split-window -v "python3 {BLE_AUTOMATION_SCRIPT}; exit"'
                             subprocess.run(tmux_cmd, shell=True)
 
                 # save in a file whether or not the serial monitor confirms that a bluetooth device was connected
                 elif CONNECTION_TEST_COMMAND in line_lower:
-                    print(f"Pong has successfully been recieved from {CLI_AUTOMATION_SCRIPT}")
+                    print(f"Pong has successfully been recieved from {BLE_AUTOMATION_SCRIPT}")
                     bluetooth_connected = 1
                     write_time = time.time()
                     write_bluetooth_status(bluetooth_connected=bluetooth_connected)
