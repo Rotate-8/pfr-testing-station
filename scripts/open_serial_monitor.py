@@ -295,7 +295,6 @@ def monitor_serial_output_and_prompt_operations(port_name):
                 # if a new line comes in say bluetooth connected is false
                 if bluetooth_connected == 1:
                     bluetooth_connected = 0
-                    print("Writing bluetooth connected status to file as 0")
                     write_bluetooth_status(bluetooth_connected=bluetooth_connected)
 
                 # Check for specific messages and take actions
@@ -315,7 +314,6 @@ def monitor_serial_output_and_prompt_operations(port_name):
 
                 # save in a file whether or not the serial monitor confirms that a bluetooth device was connected
                 elif CONNECTION_TEST_COMMAND in line_lower:
-                    print(f"Pong has successfully been recieved from {BLE_AUTOMATION_SCRIPT}")
                     bluetooth_connected = 1
                     write_time = time.time()
                     write_bluetooth_status(bluetooth_connected=bluetooth_connected)
