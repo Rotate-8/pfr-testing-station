@@ -43,7 +43,6 @@ Google format) so every public function and module begins with a clear
 #   │ ──────────────────────────  │
 #   │ run_command                 │
 #   │ find_brain_board_port       │
-#   │ get_tmux_info               │
 #   │ write_bluetooth_status      │
 #   │ is_tmux_pane_idle           │
 #   │ read_bluetooth_status       │
@@ -151,27 +150,7 @@ def find_brain_board_port(identifier):
     return brain_board_port
 
 
-def get_tmux_info():
-    """
-    Gets the number of panes and the current pane index from tmux.
-
-    Returns:
-        tuple: (pane_count, current_pane_index)
-    """
-    # Get the total number of panes in the current window
-    pane_count_cmd = ['tmux', 'display-message', '-p', '#{window_panes}']
-    pane_count_result = subprocess.run(pane_count_cmd, capture_output=True, text=True, check=True)
-    pane_count = int(pane_count_result.stdout.strip())
-    
-    # Get the index of the currently active pane
-    current_pane_cmd = ['tmux', 'display-message', '-p', '#{pane_index}']
-    current_pane_result = subprocess.run(current_pane_cmd, capture_output=True, text=True, check=True)
-    current_pane_index = int(current_pane_result.stdout.strip())
-
-    return pane_count, current_pane_index
-
-
-def write_bluetooth_status(bluetooth_connected=None, mac_addr=None, test_settings_applied=None):
+def write_bluetooth_status(bluetooth_connected=None, mac_addr=None):
     """
     Writes the Bluetooth connection status, MAC address, and test settings status to a file.
 
@@ -180,12 +159,12 @@ def write_bluetooth_status(bluetooth_connected=None, mac_addr=None, test_setting
         mac_addr (str, optional): MAC address string.
         test_settings_applied (int, optional): Test settings status (0/1).
     """
-    if bluetooth_connected is None and mac_addr is None and test_settings_applied is None:
-        raise ValueError("At least one of bluetooth_connected or mac_addr must be provided.")
+    if bluetooth_connected is None and mac_addr is None:
+        raise ValueError("At least one of bluetooth_connected or mac_addr must be provided when writing bluetooth status.")
     with open(BLUETOOTH_FILE_PATH, "a+") as f:
         f.seek(0)
         content = f.read().strip()
-        if None in [bluetooth_connected, mac_addr, test_settings_applied]:
+        if None in [bluetooth_connected, mac_addr]:
             if bluetooth_connected is None:
                 bluetooth_connected = content.split("\n")[0].split("=")[-1]
                 try:
@@ -200,16 +179,8 @@ def write_bluetooth_status(bluetooth_connected=None, mac_addr=None, test_setting
                     mac_addr = ''
                 else:
                     raise ValueError("Invalid content in Bluetooth file. Expected format: 'connection=<value>' and 'mac_addr=<value>'")
-            if test_settings_applied is None:
-                try:
-                    test_settings_applied = content.split("\n")[2].split("=")[-1]
-                    test_settings_applied = int(test_settings_applied)
-                except ValueError:
-                    test_settings_applied = 0
-                except IndexError:
-                    test_settings_applied = 0
         f.truncate(0)
-        f.write(f"connection={bluetooth_connected}\nmac_addr={mac_addr}\ntest_settings_applied={test_settings_applied}".replace("\x1b[0m", ""))
+        f.write(f"connection={bluetooth_connected}\nmac_addr={mac_addr}".replace("\x1b[0m", ""))
 
 
 def is_tmux_pane_idle(pane_id):
@@ -247,20 +218,19 @@ def read_bluetooth_status():
     Reads the Bluetooth connection status, MAC address, and test settings status from a file.
 
     Returns:
-        tuple: (bluetooth_connected, mac_addr, test_settings_applied)
+        tuple: (bluetooth_connected, mac_addr)
     """
     if not os.path.isfile(BLUETOOTH_FILE_PATH):
-        return 0, "", 0 
+        return 0, ""
 
     with open(BLUETOOTH_FILE_PATH, "r") as f:
         content = f.read().replace(' ', '').split('\n')
         if len(content) != 3:
-            raise ValueError(f"Invalid content in Bluetooth file: {'\n'.join(content)}. Expected format: 'connection=<value>\nmac_addr=<value>\ntest_settings_applied=<value>'")
+            raise ValueError(f"Invalid content in Bluetooth file: {'\n'.join(content)}. Expected format: 'connection=<value>\nmac_addr=<value>'")
         bluetooth_connected = int(content[0].split("=")[-1].strip())
         mac_addr = content[1].split("=")[-1].strip() if len(content) >= 1 else ""
-        test_settings_applied = content[2].split("=")[-1].strip() if len(content) >= 2 else 0
 
-    return bluetooth_connected, mac_addr, test_settings_applied
+    return bluetooth_connected, mac_addr
 
 def monitor_serial_output_and_prompt_operations(port_name):
     """
@@ -321,36 +291,6 @@ def monitor_serial_output_and_prompt_operations(port_name):
                     mac_addr = line_lower[line_lower.index(MAC_ADDR_MSG) + len(MAC_ADDR_MSG):].strip()
                     write_bluetooth_status(mac_addr=mac_addr)
 
-            if read_bluetooth_status()[-1] == '1' or READY_MESSAGE in line.lower():
-                if input("\nWould you like to test motor control stack? (y/n): ").strip().lower() == 'y':
-                    run_script_command = f'cd {os.getcwd()} && python3 {TEST_STACK_SCRIPT}'
-                    if "TMUX" not in os.environ:
-                        session_name = "test_motor_session"
-                        tmux_cmd = (
-                            f'tmux new-session -d -s {session_name} "{run_script_command}; tmux kill-session -t {session_name}" && '
-                            f'tmux attach-session -t {session_name}'
-                        )
-                        os.system(tmux_cmd)
-                    else:
-                        tmux_panes, pane_index = get_tmux_info()
-                        if tmux_panes == 2 and is_tmux_pane_idle((pane_index + 1) % 2):
-                            tmux_cmd = (
-                                f"tmux select-pane -t {(pane_index + 1) % 2} && "
-                                f"tmux send-keys -t {(pane_index + 1) % 2} '{run_script_command}' C-m"
-                            )
-                        else:
-                            print(f"{COLOR_YELLOW}Warning: Opening new window for test stack script.{COLOR_RESET}")
-                            tmux_cmd = (
-                            f'tmux split-window -h'
-                            f'"{run_script_command}"'
-                            )
-                        subprocess.run(tmux_cmd, shell=True)
-                        print("Opening test stack script in a new tmux pane. Resuming monitoring: \n")
-                        write_bluetooth_status(test_settings_applied=0)
-                else:
-                    print("Skipping motor control stack test, monitoring resuming: \n")
-                    write_bluetooth_status(test_settings_applied=0)
-
     except serial.SerialException as e:
         print(f"Error: Could not open serial port {port_name}. {e}")
         print("Common reasons: Port is in use, incorrect port name, or no device connected.")
@@ -368,7 +308,7 @@ if __name__ == "__main__":
         instant_exit = False
 
         # This file doubles as a lock file that shows this script is running
-        write_bluetooth_status(bluetooth_connected=0, mac_addr="", test_settings_applied=0)
+        write_bluetooth_status(bluetooth_connected=0, mac_addr="")
 
         default_port = find_brain_board_port(BRAIN_BOARD_IDENTIFIER)
         

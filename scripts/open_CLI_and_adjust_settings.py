@@ -1,7 +1,7 @@
 import os
 import subprocess
 import sys
-from open_serial_monitor import BLUETOOTH_FILE_PATH, read_bluetooth_status, write_bluetooth_status
+from open_serial_monitor import BLUETOOTH_FILE_PATH, read_bluetooth_status, write_bluetooth_status, TEST_STACK_SCRIPT
 import time
 import socket
 import queue
@@ -24,6 +24,11 @@ flags.DEFINE_bool(
     "automate_commands",
     default=True,
     help="Whether to automatically adjust settings once in CLI."
+)
+flags.DEFINE_bool(
+    "board_awaiting_wifi",
+    default=False,
+    help="Whether board is awaiting wifi credentials."
 )
 
 motor_controller_project_directory = "/r8/pfr-motor-controllers"
@@ -332,7 +337,69 @@ def motor_controller_test_ready(process, output_queue):
             if CMDS[command][0] not in curr_line or CMDS[command][0] == 0 and "false" not in curr_line:
                 return False
     return True
- 
+
+def open_test_stack():
+    def is_tmux_pane_idle(pane_id):
+        """
+        Checks if the current tmux pane is running an idle shell.
+
+        Args:
+            pane_id (int): The pane index to check.
+        Returns:
+            bool: True if idle, False otherwise.
+        """
+        try:
+            pane_id = int(pane_id)  # Ensure pane_id is an integer
+            # Get the name of the current process in the active pane
+            result = subprocess.run(
+                ['tmux', 'list-panes', '-F', '#{pane_current_command}'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            current_command = result.stdout.split('\n')[pane_id].strip()
+            # Check if the command is a common shell
+            if current_command == 'bash':
+                return True
+            else:
+                return False
+                
+        except subprocess.CalledProcessError as e:
+            print(f"Error running tmux command: {e}")
+            return False
+
+    if input("\nWould you like to test motor control stack? (y/n): ").strip().lower() == 'y':
+        run_script_command = f'cd {os.getcwd()} && python3 {TEST_STACK_SCRIPT}'
+        if "TMUX" not in os.environ:
+            session_name = "test_motor_session"
+            tmux_cmd = (
+                f'tmux new-session -d -s {session_name} "{run_script_command}; tmux kill-session -t {session_name}" && '
+                f'tmux attach-session -t {session_name}'
+            )
+            os.system(tmux_cmd)
+        else:
+            idle_pane_found = False
+            pane_count_cmd = ['tmux', 'display-message', '-p', '#{window_panes}']
+            pane_count_result = subprocess.run(pane_count_cmd, capture_output=True, text=True, check=True)
+            pane_count = int(pane_count_result.stdout.strip())
+            for idx in range(pane_count):
+                if is_tmux_pane_idle(idx):
+                    tmux_cmd = (
+                        f"tmux select-pane -t {idx} && "
+                        f"tmux send-keys -t {idx} '{run_script_command}' C-m"
+                    )
+                    idle_pane_found = True
+                    break
+            if not idle_pane_found:
+                print(f"{COLOR_YELLOW}Warning: Opening new window for test stack script.{COLOR_RESET}")
+                tmux_cmd = (
+                    f'tmux split-window -h "{run_script_command}"'
+                )
+            subprocess.run(tmux_cmd, shell=True)
+            print("Opening test stack script in a new tmux pane. Resuming monitoring: \n")
+    else:
+        print("Skipping motor control stack test, monitoring resuming: \n")
+
 
 def main(argv):
     try:
@@ -341,6 +408,7 @@ def main(argv):
         mode = flags.FLAGS.mode.lower().strip()
         reset_settings_flag = flags.FLAGS.reset_settings
         automate_commands = flags.FLAGS.automate_commands
+        board_awaiting_wifi = flags.FLAGS.board_awaiting_wifi
 
         if mode == "ble" and not os.path.exists(BLUETOOTH_FILE_PATH):
             instant_exit = True
