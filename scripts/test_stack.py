@@ -51,12 +51,18 @@ Google format) so every public function and module begins with a clear
 import os
 import sys
 import subprocess
+from absl import flags
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from start_menu import ZENOH_AUTOMATION_SCRIPT
 
 # ──────────────────────────────────────────────────────────────────────────
 # Constants & configuration
 # -------------------------------------------------------------------------
+flags.DEFINE_bool(
+    "reset_prompt",
+    default=True,
+    help="Whether to prompt user to reset board."
+)
 
 SOFTWARE_REPO = '/r8/pfr-software'
 BRINGUP_CMD  = 'ros2 launch pfr_launch trike-without-teleop-bringup.launch.yaml'
@@ -83,6 +89,8 @@ def main():
     """
     try:
         instant_exit = False
+
+        reset_prompt = flags.FLAGS.reset_prompt
 
         if not os.path.exists(SOFTWARE_REPO):
             raise Exception(f"Software repository not found at {SOFTWARE_REPO}. Please clone the repository first.")
@@ -112,7 +120,8 @@ def main():
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
         # 4) prompt user
-        input("\nBring-up launched in the background.  Please click the reset button on the microcontroller then press Enter to continue.")
+        if reset_prompt:
+            input("\nBring-up launched in the background.  Please click the reset button on the microcontroller then press Enter to continue.")
 
         # 5) run teleop in foreground
         print("Running pfr_teleop in this terminal…")
