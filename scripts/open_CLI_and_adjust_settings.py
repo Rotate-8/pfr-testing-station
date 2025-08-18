@@ -386,9 +386,9 @@ def main(argv):
         # A good practice is to make sure the process is closed,
         # even if an error occurs.
         if not instant_exit:
-            if motor_controller_test_ready(process, output_queue):
-                if os.path.exists(BLUETOOTH_FILE_PATH):
-                    write_bluetooth_status(test_settings_applied=1)
+            if os.path.exists(BLUETOOTH_FILE_PATH) and motor_controller_test_ready(process, output_queue):
+                print("Motor controller test ready, writing bluetooth status to file.")
+                write_bluetooth_status(test_settings_applied=1)
             input("\nPress enter to return: ")
         if 'process' in locals() and process.poll() is None:
             process.kill()
