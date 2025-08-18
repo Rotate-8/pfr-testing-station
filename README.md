@@ -43,7 +43,7 @@ A Raspberry Pi–powered test station for automating ESP32-S3 firmware builds, f
 	```
     In order to work with this repo pfr-rust-nodes must be edited. Line 104 of main.rs in pfr_ble_cli was changed to
     ```rust
-    println!(" - {{{:03}}} {} {}", i, props.local_name.unwrap(), peripheral.address());
+    println!(" - {{{:03}}} {}| {}", i, props.local_name.unwrap(), peripheral.address());
     ```
     This allows the code to find the desired motor controller over BLE using its mac address.
     
