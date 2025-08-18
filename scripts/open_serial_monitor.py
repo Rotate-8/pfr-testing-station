@@ -208,8 +208,6 @@ def write_bluetooth_status(bluetooth_connected=None, mac_addr=None, test_setting
                     test_settings_applied = 0
                 except IndexError:
                     test_settings_applied = 0
-        if test_settings_applied != 0:
-            print(f"Writing test settings applied status to file as {test_settings_applied}")
         f.truncate(0)
         f.write(f"connection={bluetooth_connected}\nmac_addr={mac_addr}\ntest_settings_applied={test_settings_applied}".replace("\x1b[0m", ""))
 

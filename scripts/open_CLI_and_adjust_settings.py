@@ -374,10 +374,9 @@ def main(argv):
                     break
                 process.stdin.write(f"{command}\n")
                 process.stdin.flush()
-                time.sleep(0.5)
+                time.sleep(0.2)
                 while not output_queue.empty():
-                    # print(output_queue.get(block=True, timeout=0.5))
-                    i = 1
+                    print(output_queue.get(block=True, timeout=0.1))
 
     except KeyboardInterrupt:
         instant_exit = True
