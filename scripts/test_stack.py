@@ -1,20 +1,80 @@
+"""
+Brings up the ROS2 stack and launches teleop for the PFR trike.
+
+This script changes to the workspace directory, sources the ROS2 setup script,
+launches the bring-up in the background, prompts the user to reset the microcontroller,
+then runs the teleop node in the foreground.
+
+Author: Paras + Vouk  •  Date: 2025-8-6
+Project: Motor-Controller Station  •  Language: Python 3.12
+
+Usage-host must have ROS2 and bash installed:
+   $ python3 test_stack_w_doc.py
+
+** IMPORTANT*******************************************************
+The code follows documentation guidelines (§SWE-061 / PEP 257
+Google format) so every public function and module begins with a clear
+72-char summary line, then a blank line, then extended detail.
+*******************************************************************
+"""
+# ──────────────────────────────────────────────────────────────────────────
+# Code Structure Diagram
+# -------------------------------------------------------------------------
+#
+#   ┌───────────────┐
+#   │  Constants &  │
+#   │ Configuration │
+#   └───────┬───────┘
+#           │
+#           ▼
+#   ┌─────────────────────────────┐
+#   │      Helper Functions       │
+#   │ ──────────────────────────  │
+#   │ die(msg)                    │
+#   └───────┬─────────────────────┘
+#           │
+#           ▼
+#   ┌─────────────────────────────┐
+#   │     Main Program Flow       │
+#   │ ──────────────────────────  │
+#   │ main()                      │
+#   └───────┬─────────────────────┘
+#           │
+#           ▼
+#   ┌─────────────────────────────┐
+#   │   Script Entry Point        │
+#   │ ──────────────────────────  │
+#   │ if __name__ == "__main__":  │
+#   └─────────────────────────────┘
+# -------------------------------------------------------------------------
 import os
 import sys
 import subprocess
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from start_menu import ZENOH_AUTOMATION_SCRIPT
 
+# ──────────────────────────────────────────────────────────────────────────
+# Constants & configuration
+# -------------------------------------------------------------------------
+
 BRINGUP_CMD  = 'ros2 launch pfr_launch trike-without-teleop-bringup.launch.yaml'
 TELEOP_CMD   = 'ros2 run pfr_teleop pfr_teleop'
-
 COLOR_RED = '\033[91m'
 COLOR_YELLOW = '\033[93m'
 COLOR_RESET = '\033[0m'
 
+# ──────────────────────────────────────────────────────────────────────────
+# Helper functions
+# -------------------------------------------------------------------------
+
+
 def die(msg: str):
     print(f"Error: {msg}", file=sys.stderr)
     sys.exit(1)
+
+# ──────────────────────────────────────────────────────────────────────────
+# Main program flow
+# -------------------------------------------------------------------------
 
 def main():
     try:
@@ -73,6 +133,10 @@ def main():
         if not instant_exit:
             input("\nPress enter to return to main menu: ")
         sys.exit()
+
+# ──────────────────────────────────────────────────────────────────────────
+# Script entry point
+# -------------------------------------------------------------------------
 
 if __name__ == '__main__':
     main()
