@@ -51,7 +51,6 @@ Google format) so every public function and module begins with a clear
 import os
 import sys
 import subprocess
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from start_menu import ZENOH_AUTOMATION_SCRIPT
 
@@ -62,7 +61,6 @@ from start_menu import ZENOH_AUTOMATION_SCRIPT
 SOFTWARE_REPO = '/r8/pfr-software'
 BRINGUP_CMD  = 'ros2 launch pfr_launch trike-without-teleop-bringup.launch.yaml'
 TELEOP_CMD   = 'ros2 run pfr_teleop pfr_teleop'
-
 COLOR_RED = '\033[91m'
 COLOR_YELLOW = '\033[93m'
 COLOR_RESET = '\033[0m'
@@ -151,6 +149,10 @@ def main():
         if not instant_exit:
             input("\nPress enter to return to main menu: ")
         sys.exit()
+
+# ──────────────────────────────────────────────────────────────────────────
+# Script entry point
+# -------------------------------------------------------------------------
 
 if __name__ == '__main__':
     main()
