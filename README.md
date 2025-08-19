@@ -109,8 +109,9 @@ This is the hub for testing the motor controller on the wheel module at the test
 	- **USE:** After flashing the firmware onto the brain board, this will guide you through the complete setup from a blank board to having tested and setup settings for the actual robot. Will make it extremely easy to test from completely blank board.
 2. **Test Stack**
 	- **USE:** Skip to the last step of the previous script. Will use the trike launch file launch zenoh and run pfr_teleop node with a window with serial monitor. Useful if you have setup settings for testing already.
-
-<h2 style="color:#d9534f;">⚠️WARNING: Do not run both linear and angular motors together. Both move the wheel forward/backward and one could break if they are working against each other. Test if each moves the wheel in both directions separately. ⚠️</h2>
+```html
+<span style="color:#d9534f;">⚠️WARNING: Do not run both linear and angular motors together. Both move the wheel forward/backward and one could break if they are working against each other. Test if each moves the wheel in both directions separately. ⚠️</span>
+```
 
 ### Reassign Encoder I2C Address
 - **USE**: Will reassign the sensors I2C address. 
@@ -120,7 +121,9 @@ This is the hub for testing the motor controller on the wheel module at the test
 Important functionality for setting up a motor controller board for testing without flashing new code onto it:
 1. **Open serial monitor for ESP32**
 	- **USE:** Will open serial monitor with terminal window. This serial monitor will guide you through steps to get to testing the motor controller in the same way as the "Upload and monitor code on ESP32" script. Specfically, it will prompt you to setup settings using the motor controller CLI if it sees the wifi credentials are not set, and it will prompt you if you want to launch the testing script after the settings are set for testing or if the motor controller enter the ready state. 
-	- **DEBUGGING:** <span style="color:#f7b731;">Warning: entering ready state could happen with the wrong settings and/or zenoh endpoint, you have to keep track of that if you decide to test using this option.</span>
+	- **DEBUGGING:** ```html
+	<span style="color:#f7b731;">Entering ready state could happen with the wrong settings and/or zenoh endpoint, you have to keep track of that if you decide to test using this option.</span>
+	```
 2. **Open CLI for Motor Controller**
 	- **USE:** Opens the CLI to adjust motor controller settings. You have 2 options to respond to before you open the CLI: bluetooth/zenoh, and if you want to set for testing/reset to robot/manually adjust settings. 
 	- **DEBUGGING:**
