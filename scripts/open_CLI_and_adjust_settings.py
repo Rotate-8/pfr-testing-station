@@ -1,4 +1,5 @@
 import os
+import signal
 import subprocess
 import sys
 from open_serial_monitor import BLUETOOTH_FILE_PATH, read_bluetooth_status, write_bluetooth_status, TEST_STACK_SCRIPT
@@ -33,11 +34,13 @@ flags.DEFINE_bool(
 
 motor_controller_project_directory = "/r8/pfr-motor-controllers"
 
-rust_project_directory = "/r8/pfr-rust-nodes1"
+rust_project_directory = "/r8/pfr-rust-nodes"
 ble_cmd = ["cargo", "run", "-p", "pfr_ble_cli"]
 
 pfr_software_directory = "/r8/pfr-software"
 zenoh_cmd = ["ros2", "run", "pfr_tools", "motor_controller_cli"]
+
+
 
 COLOR_RED = '\033[91m'
 COLOR_YELLOW = '\033[93m'
@@ -253,6 +256,46 @@ def connect_to_zenoh_cli(output_queue):
         return True
     else:
         return False
+
+def _is_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+def _launch_rmw_zenohd_background(host: str = "127.0.0.1", port: int = 7447, extra_args=None):
+    """
+    Start `ros2 run rmw_zenoh_cpp rmw_zenohd` in the background **only if**
+    nothing is already listening on host:port. Returns the Popen handle if we
+    started it, or None if something is already up (or we couldn't start it).
+    """
+    if _is_port_open(host, port):
+        print(f"Zenoh router already appears to be listening on {host}:{port}.")
+        return None
+
+    cmd = ["ros2", "run", "rmw_zenoh_cpp", "rmw_zenohd"]
+    if extra_args:
+        cmd += list(extra_args)
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            preexec_fn=os.setsid  # new process group (Unix)
+        )
+        print("Started rmw_zenohd in the background.")
+        input("press RESET/power-cycle the motor controller so it re-announces over Zenoh. Press enter when done")
+        # Give the router a moment to bind its sockets
+        time.sleep(2.0)
+        return proc
+    except FileNotFoundError:
+        print("ERROR: 'ros2' not found. Ensure ROS 2 is installed and on your PATH.")
+    except Exception as e:
+        print(f"ERROR: failed to start rmw_zenohd: {e}")
+    return None
+
             
 # This is necessary because pfr_ble_cli has a phantom motor_0_ble that freezes it, 
 # so in order to make the timeout on the connection work you must thread output and quit
@@ -309,18 +352,26 @@ def loop_connection_attempts(mode):
                 process, output_queue = start_process_and_output_thread(ble_cmd, rust_project_directory)
             print("Bluetooth connected successfully, adjusting settings")
     elif mode == "zenoh":
+    # Optional: tune these if you’re not using the defaults
+        zenoh_host = "10.8.10.59"
+        zenoh_port = 7447
+        # 1) Ensure a zenoh router is running (idempotent: only starts if port is free)
+        rmw_proc = _launch_rmw_zenohd_background(zenoh_host, zenoh_port)
+
         max_tries = 3
         process, output_queue = start_process_and_output_thread(zenoh_cmd, pfr_software_directory)
         tries = 1
+        # 2) Tell the user to reset, right away (helps discovery)
+        print("If you don’t see the CLI connect, press RESET/power-cycle the motor controller.")
+
         while not connect_to_zenoh_cli(output_queue) and tries < max_tries + 1:
             tries += 1
             if tries == max_tries + 1:
-                raise Exception("Unable to connect. Make sure motor controller is connected over zenoh.")
-            print(f"\nRetrying connection to motor controller CLI over zenoh {tries - 1}/{max_tries - 1}...")
+                raise Exception("Unable to connect. Make sure the motor controller is on Zenoh and rmw_zenohd is running.")
+            print(f"\nRetrying connection to motor controller CLI over Zenoh {tries - 1}/{max_tries - 1}...")
+            print("Tip: press RESET/power-cycle the motor controller, then wait a few seconds.")
+            # (Re)spawn your CLI process for the next attempt
             process, output_queue = start_process_and_output_thread(zenoh_cmd, pfr_software_directory)
-    else:
-        raise Exception("Invalid CLI connection method passed to CLI setting adjusetment script.")
-    
     return process, output_queue
 
 

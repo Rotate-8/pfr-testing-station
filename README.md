@@ -1,7 +1,7 @@
 
 # PFR Testing Station & Encoder I2C Address Reassigner
 
-A Raspberry Pi–powered test station for automating ESP32-S3 firmware builds, flashing, settings configuration, interactive I²C address reassignment, and motor controller testing.
+A Raspberry Pi–powered test station for automating ESP32-S3 firmware flashing, settings configuration, interactive I²C address reassignment, and motor controller testing.
 
 ---
 
