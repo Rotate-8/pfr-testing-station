@@ -62,6 +62,7 @@ import time
 import sys
 import subprocess
 import json
+import sys, tty, termios
 
 # ──────────────────────────────────────────────────────────────────────────
 # Constants & configuration
@@ -75,8 +76,12 @@ BAUD: int = 115_200
 RESET_PULSE_MS: int = 50      # Duration EN low → high
 BOOT_SETTLE_MS: int = 300     # Give firmware time to boot
 RESPONSE_TIMEOUT: float = 2.0 # Seconds to collect firmware banner
+FLASH_WARNING_LENGTH: int = 7 # Ample time for burn to complete
 
 ESP32_S3_IDENTIFIER: str = "USB Single Serial"  # Sub‑string from `pio` desc
+
+I2C_ADDR_PROMPT = "new i2c address to be"
+COMPLETION_STATEMENT = "burning complete"
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -107,17 +112,12 @@ def run_pio_command(command: list[str], capture_output: bool = False, text: bool
         )
         return result
     except subprocess.CalledProcessError as e:
-        print(f"Error: PlatformIO command '{' '.join(e.cmd)}' failed with exit code {e.returncode}", file=sys.stderr)
         if capture_output:
             print("STDOUT:\n", e.stdout, file=sys.stderr)
             print("STDERR:\n", e.stderr, file=sys.stderr)
-        sys.exit(1)
+        raise Exception(f"Error: PlatformIO command '{' '.join(e.cmd)}' failed with exit code {e.returncode}", file=sys.stderr)
     except FileNotFoundError:
-        print(f"Error: 'pio' command not found. Make sure PlatformIO Core is installed and in your PATH.", file=sys.stderr)
-        sys.exit(1)
-    except Exception as e:
-        print(f"An unexpected error occurred while running pio command: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise Exception(f"Error: 'pio' command not found. Make sure PlatformIO Core is installed and in your PATH.", file=sys.stderr)
 
 def find_serial_port() -> str:
     """
@@ -129,13 +129,12 @@ def find_serial_port() -> str:
     Raises:
         SystemExit: If no suitable device is found or JSON cannot be parsed.
     """
-    print(f"Searching for ESP32-S3 board with identifier: '{ESP32_S3_IDENTIFIER}'...")
+    print(f"   Searching for ESP32-S3 board with identifier: '{ESP32_S3_IDENTIFIER}'...\r")
     try:
         result = run_pio_command(["pio", "device", "list", "--json-output"], capture_output=True, text=True)
         devices = json.loads(result.stdout)
     except json.JSONDecodeError:
-        print("Error: Could not parse JSON output from 'pio device list'.", file=sys.stderr)
-        sys.exit(1)
+        raise Exception("Could not parse JSON output from 'pio device list'.", file=sys.stderr)
 
     s3_port = None
     found_devices = []
@@ -149,18 +148,14 @@ def find_serial_port() -> str:
             found_devices.append(dev)
 
     if not found_devices:
-        print(f"{COLOR_RED}Error: No ESP32-S3 board found matching identifier '{ESP32_S3_IDENTIFIER}'.{COLOR_RESET}", file=sys.stderr)
-        print("Please ensure the board is connected and powered, and verify its identifier.", file=sys.stderr)
-
-        input("Press any key to return to menu: ")
-        sys.exit(1)
+        raise Exception(f"{COLOR_RED}No ESP32-S3 board found matching identifier '{ESP32_S3_IDENTIFIER}'.\nPlease ensure the board is connected and powered, and verify its identifier.{COLOR_RESET}", file=sys.stderr)
     elif len(found_devices) > 1:
-        print(f"{COLOR_YELLOW}Warning: Multiple ESP32-S3 devices found matching identifier '{ESP32_S3_IDENTIFIER}'. Using the first one found: {found_devices[0]['port']}{COLOR_RESET}", file=sys.stderr)
-        print("Consider using a more specific identifier if this is not intended.\n", file=sys.stderr)
+        print(f"   {COLOR_YELLOW}Warning: Multiple ESP32-S3 devices found matching identifier '{ESP32_S3_IDENTIFIER}'. Using the first one found: {found_devices[0]['port']}{COLOR_RESET}\r", file=sys.stderr)
+        print("   Consider using a more specific identifier if this is not intended.\n\r", file=sys.stderr)
         s3_port = found_devices[0]["port"]
     else:
         s3_port = found_devices[0]["port"]
-        print(f"Successfully identified ESP32-S3 on port: {s3_port}\n")
+        print(f"   Successfully identified ESP32-S3 on port: {s3_port}\n\r")
 
     return s3_port
 
@@ -202,10 +197,31 @@ def print_banner(ser: serial.Serial) -> bool:
             # Filter out firmware's own interactive prompts
             if l.startswith("What is the sensor's I2C address"):
                 return True
-            print("  ", l)
+            print(f"   {l}\r")
     return False
 
-def main() -> None:
+
+def turn_on_raw_mode(fd):
+    """
+    Turns on raw mode for the given file descriptor.
+    """
+    sys.stdout.write("\x1b[?25l") # hides cursor
+    sys.stdout.flush()
+    old_settings = termios.tcgetattr(fd)
+    tty.setraw(fd)
+    return old_settings
+
+
+def turn_off_raw_mode(fd, old_settings):
+    """
+    Restores the original terminal settings.
+    """
+    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    sys.stdout.write("\x1b[?25h")
+    sys.stdout.flush()
+
+
+def main(fd, old_settings) -> None:
     """
     Main program flow for burning a new I2C address to the sensor.
 
@@ -217,32 +233,34 @@ def main() -> None:
     """
     # 1) Reset & show banner
     port: str = find_serial_port()
-    print(f"Resetting ESP32 on {port} @ {BAUD} baud…")
-    ser: serial.Serial = serial.Serial(port, BAUD) # Open serial connection here
+    print(f"   Resetting ESP32 on {port} @ {BAUD} baud…\r")
     ser = reset_esp32(port)
     if not print_banner(ser):
-        print("\nError: No I2C prompted raised by ESP32. Check the ESP32-S3 is connected and try resetting.", file=sys.stderr)
-        input("Press any key to return to menu: ")
         ser.close()
-        sys.exit(1)
-
+        raise Exception("\nError: No I2C prompted raised by ESP32. Check the ESP32-S3 is connected and try resetting.", file=sys.stderr)
+    
+    ser.reset_input_buffer()
     # 2) Single round of user prompts
+    turn_off_raw_mode(fd, old_settings)
     sensor_addr: str = input("\nCurrent I²C address [default 0x40]: ").strip() or "0x40"
-
-    print(f"\n>> Sensor addr → {sensor_addr}")
+    
+    turn_on_raw_mode(fd)
+    print(f"   \n>> Sensor addr → {sensor_addr}\r")
     ser.write((sensor_addr + "\n").encode())
     time.sleep(0.1)
 
     while True:
         line: str = ser.readline().decode('utf-8', errors='ignore')
         if "error state" in line.lower():
-            print("Invalid I²C address detected, restarting ESP32\n")
+            print("   Invalid I²C address detected, restarting ESP32\n\r")
             time.sleep(2)
+            turn_off_raw_mode(fd, old_settings)
             main()
         elif "do you want to" in line.lower():
             break
-
-    print('\n>>WARNING: Make sure you only burn a new address to a sensor once.')
+    
+    turn_off_raw_mode(fd, old_settings)
+    print(f'\n>>WARNING: Make sure you only burn a new address to a sensor once.')
     valid_addr: bool = False
     while not valid_addr:
         new_addr: str = input("Input new I²C address to burn (e.g. 0x41): ").strip()
@@ -256,26 +274,30 @@ def main() -> None:
         else:
             valid_addr = True
 
-    # 3) Send commands in sequence
+    turn_on_raw_mode(fd)
 
-    print(f">> Action → BURN")
+    # 3) Send commands
+    print(f"\n   >> Action → BURN\r")
     ser.write(("b \n").encode())
     time.sleep(0.05)
 
-    print(f">> New addr → {new_addr}")
+    print(f"   >> New addr → {new_addr}\r")
     ser.write((new_addr + "\n").encode())
 
     ser.flush()
 
     # 4) Read and print firmware output (filter prompts)
-    print("\n-- Firmware output --")
-    end: float = time.time() + RESPONSE_TIMEOUT
+    print("   \n-- Firmware output --\r")
+    end: float = time.time() + FLASH_WARNING_LENGTH
     while time.time() < end:    
         l: str = ser.readline().decode(errors='ignore').rstrip()
-        if not l:
+        if not l or I2C_ADDR_PROMPT in l.lower():
             continue
-        print(l)
-
+        print(f'   {l}\r')
+        if COMPLETION_STATEMENT in l.lower():
+            break
+        
+    turn_off_raw_mode(fd, old_settings)
     ser.close()
     print("\nDone.")
 
@@ -285,10 +307,16 @@ if __name__=="__main__":
     """
     try:
         instant_exit: bool = False
-        main()
+        fd = sys.stdin.fileno()
+        old_settings = turn_on_raw_mode(fd)
+        main(fd, old_settings)
     except KeyboardInterrupt:
         instant_exit = True
     except Exception as e:
+        turn_off_raw_mode(fd, old_settings)
         print(f"\nError: {e}", file=sys.stderr)
+    finally:
+        turn_off_raw_mode(fd, old_settings)
         if not instant_exit:
             input("Press enter to return to menu: ")
+        sys.exit()

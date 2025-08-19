@@ -1,13 +1,14 @@
 import os
 import subprocess
 import sys
-from open_serial_monitor import BLUETOOTH_FILE_PATH, read_bluetooth_status, write_bluetooth_status
+from open_serial_monitor import BLUETOOTH_FILE_PATH, read_bluetooth_status, write_bluetooth_status, TEST_STACK_SCRIPT
 import time
 import socket
 import queue
 import threading
 from absl import app
 from absl import flags
+from flash_code_and_monitor import find_files_in_incomplete_directory
 
 flags.DEFINE_string(
     "mode",
@@ -24,6 +25,13 @@ flags.DEFINE_bool(
     default=True,
     help="Whether to automatically adjust settings once in CLI."
 )
+flags.DEFINE_bool(
+    "board_awaiting_wifi",
+    default=False,
+    help="Whether board is awaiting wifi credentials."
+)
+
+motor_controller_project_directory = "/r8/pfr-motor-controllers"
 
 rust_project_directory = "/r8/pfr-rust-nodes1"
 ble_cmd = ["cargo", "run", "-p", "pfr_ble_cli"]
@@ -39,12 +47,12 @@ COLOR_RESET = '\033[0m'
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.connect(("8.8.8.8", 80))
 CMDS = {
-        "zenoh-endpoint": [f"tcp/{s.getsockname()[0]}:7447", f"udp/10.50.50.1:7777"],
+        "zenoh-endpoint": [f"tcp/{s.getsockname()[0]}:7447"],
         "wifi-ssid": ["twistedfields"],
         "wifi-pass": ["alwaysbekind"],
-        "steer-zero-on-boot": ["0", "1"],
-        "drive-motor-control-type": ["torque", "linear velocity"],
-        "steer-motor-control-type": ["torque", "position"]
+        "steer-zero-on-boot": ["0"],
+        "drive-motor-control-type": ["torque"],
+        "steer-motor-control-type": ["torque"]
     }
 
 def read_until_message(q, messages, timeout, print_output=False, compare_func=None):
@@ -114,16 +122,15 @@ def send_and_confirm_command(process, output_queue, setting, val):
 
 
 def reset_settings(process, output_queue, zenoh_endpoint_addr=None):
-    for command in CMDS.keys():
-        if len(CMDS[command]) == 2:
-            if zenoh_endpoint_addr and command == "zenoh-endpoint":
-                val = zenoh_endpoint_addr
+    settings_file = find_files_in_incomplete_directory("settings.yaml", motor_controller_project_directory, subdir='motor_controller')
+    print(f"Using settings file: {settings_file}")
+    with open(settings_file, 'r') as f:
+        for line in f:
+            if line.startswith("#") or not line.strip():
                 continue
-            else:
-                val = CMDS[command][1]
-        else:
-            continue
-        send_and_confirm_command(process, output_queue, command, val)
+            split_line = line.replace(' ', '').split(":")
+            if len(split_line) == 2:
+                send_and_confirm_command(process, output_queue, split_line[0], split_line[1])
 
 
 def setup_settings(process, output_queue):    
@@ -330,7 +337,69 @@ def motor_controller_test_ready(process, output_queue):
             if CMDS[command][0] not in curr_line or CMDS[command][0] == 0 and "false" not in curr_line:
                 return False
     return True
- 
+
+def open_test_stack():
+    def is_tmux_pane_idle(pane_id):
+        """
+        Checks if the current tmux pane is running an idle shell.
+
+        Args:
+            pane_id (int): The pane index to check.
+        Returns:
+            bool: True if idle, False otherwise.
+        """
+        try:
+            pane_id = int(pane_id)  # Ensure pane_id is an integer
+            # Get the name of the current process in the active pane
+            result = subprocess.run(
+                ['tmux', 'list-panes', '-F', '#{pane_current_command}'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            current_command = result.stdout.split('\n')[pane_id].strip()
+            # Check if the command is a common shell
+            if current_command == 'bash':
+                return True
+            else:
+                return False
+                
+        except subprocess.CalledProcessError as e:
+            print(f"Error running tmux command: {e}")
+            return False
+
+    if input("\nWould you like to test motor control stack? (y/n): ").strip().lower() == 'y':
+        run_script_command = f'cd {os.getcwd()} && python3 {TEST_STACK_SCRIPT}'
+        if "TMUX" not in os.environ:
+            session_name = "test_motor_session"
+            tmux_cmd = (
+                f'tmux new-session -d -s {session_name} "{run_script_command}; tmux kill-session -t {session_name}" && '
+                f'tmux attach-session -t {session_name}'
+            )
+            os.system(tmux_cmd)
+        else:
+            idle_pane_found = False
+            pane_count_cmd = ['tmux', 'display-message', '-p', '#{window_panes}']
+            pane_count_result = subprocess.run(pane_count_cmd, capture_output=True, text=True, check=True)
+            pane_count = int(pane_count_result.stdout.strip())
+            for idx in range(pane_count):
+                if is_tmux_pane_idle(idx):
+                    tmux_cmd = (
+                        f"tmux select-pane -t {idx} && "
+                        f"tmux send-keys -t {idx} '{run_script_command}' C-m"
+                    )
+                    idle_pane_found = True
+                    break
+            if not idle_pane_found:
+                print(f"{COLOR_YELLOW}Warning: Opening new window for test stack script.{COLOR_RESET}")
+                tmux_cmd = (
+                    f'tmux split-window -h "{run_script_command}"'
+                )
+            subprocess.run(tmux_cmd, shell=True)
+            print("Opening test stack script in a new tmux pane. Resuming monitoring: \n")
+    else:
+        print("Skipping motor control stack test, monitoring resuming: \n")
+
 
 def main(argv):
     try:
@@ -339,6 +408,7 @@ def main(argv):
         mode = flags.FLAGS.mode.lower().strip()
         reset_settings_flag = flags.FLAGS.reset_settings
         automate_commands = flags.FLAGS.automate_commands
+        board_awaiting_wifi = flags.FLAGS.board_awaiting_wifi
 
         if mode == "ble" and not os.path.exists(BLUETOOTH_FILE_PATH):
             instant_exit = True
@@ -383,12 +453,15 @@ def main(argv):
     except Exception as e:
         print(f"{COLOR_RED}\nERROR: {e}{COLOR_RESET}")
     finally:
-        # A good practice is to make sure the process is closed,
-        # even if an error occurs.
+        # Only check test readiness if process is still running
+        if (
+            os.path.exists(BLUETOOTH_FILE_PATH)
+            and 'process' in locals()
+            and process.poll() is None
+            and motor_controller_test_ready(process, output_queue)
+        ):
+            write_bluetooth_status(test_settings_applied=1)
         if not instant_exit:
-            if os.path.exists(BLUETOOTH_FILE_PATH) and motor_controller_test_ready(process, output_queue):
-                print("Motor controller test ready, writing bluetooth status to file.")
-                write_bluetooth_status(test_settings_applied=1)
             input("\nPress enter to return: ")
         if 'process' in locals() and process.poll() is None:
             process.kill()
