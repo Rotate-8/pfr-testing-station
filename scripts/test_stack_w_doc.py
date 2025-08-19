@@ -86,6 +86,7 @@ def main():
       4. Prompt user to reset microcontroller.
       5. Run teleop in foreground.
     """
+
     # 1) cd into workspace
     if not os.path.isdir(WORK_DIR):
         die(f"working directory not found: {WORK_DIR}")
@@ -96,21 +97,36 @@ def main():
         die(f"setup script not found: {SETUP_SCRIPT}")
 
     # 3) launch bring-up in background (no output)
-    print("Running ROS2 bring-up in background...")
-    subprocess.Popen([
-        'bash', '-i', '-c',
-        f'source "{SETUP_SCRIPT}" && exec {BRINGUP_CMD}'
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    input("Do you want to see the output? of the launch file?(y/n)")
+    if(input().strip().lower() == "y"):
+        subprocess.Popen(['tmux', 'split-window',
+            'bash', '-i', '-c',
+            f'source "{SETUP_SCRIPT}" && exec {BRINGUP_CMD}'
+        ])
+        input("\nBring-up launched.  Please click the reset button on the microcontroller then press Enter to continue.") 
+        # 5) run teleop in new panel
+        print("Running pfr_teleop in this terminal…")
+        subprocess.run([
+            'bash', '-i', '-c',
+            f'source "{SETUP_SCRIPT}" && exec {TELEOP_CMD}'
+        ], check=True)
 
-    # 4) prompt user
-    input("Bring-up launched in the background.  Please click the reset button on the microcontroller then press Enter to continue.")
+    elif(input().strip().lower() == "n"):   
+        print("Running ROS2 bring-up in background...") 
+        subprocess.Popen([
+            'bash', '-i', '-c',
+            f'source "{SETUP_SCRIPT}" && exec {BRINGUP_CMD}'
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        input("\nBring-up launched in the background.  Please click the reset button on the microcontroller then press Enter to continue.")
+        # 5) run teleop in foreground
+        print("Running pfr_teleop in this terminal…")
+        subprocess.run([
+            'bash', '-i', '-c',
+            f'source "{SETUP_SCRIPT}" && exec {TELEOP_CMD}'
+        ], check=True)
 
-    # 5) run teleop in foreground
-    print("Running pfr_teleop in this terminal…")
-    subprocess.run([
-        'bash', '-i', '-c',
-        f'source "{SETUP_SCRIPT}" && exec {TELEOP_CMD}'
-    ], check=True)
+    
+    
 
 # ──────────────────────────────────────────────────────────────────────────
 # Script entry point
