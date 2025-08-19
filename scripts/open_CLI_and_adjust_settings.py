@@ -1,8 +1,7 @@
 import os
-import signal
 import subprocess
 import sys
-from open_serial_monitor import BLUETOOTH_FILE_PATH, read_bluetooth_status, write_bluetooth_status, TEST_STACK_SCRIPT
+from open_serial_monitor import BLUETOOTH_FILE_PATH, read_bluetooth_status
 import time
 import socket
 import queue
@@ -40,17 +39,21 @@ ble_cmd = ["cargo", "run", "-p", "pfr_ble_cli"]
 pfr_software_directory = "/r8/pfr-software"
 zenoh_cmd = ["ros2", "run", "pfr_tools", "motor_controller_cli"]
 
-
-
 COLOR_RED = '\033[91m'
 COLOR_YELLOW = '\033[93m'
 COLOR_RESET = '\033[0m'
 
+ROBOT_ZENOH_ENDPOINT = 'udp/10.50.50.1:7777'
+
 
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.connect(("8.8.8.8", 80))
+ipv4 = s.getsockname()[0]
+ZENOH_LOCATOR = 'tcp'
+ZENOH_PORT = '7447'
+
 CMDS = {
-        "zenoh-endpoint": [f"tcp/{s.getsockname()[0]}:7447"],
+        "zenoh-endpoint": [f"{ZENOH_LOCATOR}/{ipv4}:{ZENOH_PORT}"],
         "wifi-ssid": ["twistedfields"],
         "wifi-pass": ["alwaysbekind"],
         "steer-zero-on-boot": ["0"],
@@ -108,35 +111,49 @@ def send_and_confirm_command(process, output_queue, setting, val):
     print(f"Setting {setting} to {val}")
     process.stdin.write(f"settings {setting} {val}\n")
     if not read_until_message(output_queue, "set to", 0.3, print_output=False):
-        process.stdin.write("settings help\n")
-        settings_list = ""
-        time.sleep(0.5)
+        raise Exception(f"Failed to set {setting} to {val}.")
+
+
+def get_settings_list(process, output_queue):
+    process.stdin.write("settings help\n")
+    settings_list = []
+    time.sleep(2)
+    # I know this is super shit, but it works
+    while not output_queue.empty():
         while not output_queue.empty():
-            # print(output_queue.get(block=True, timeout=0.1))
-            curr_line = output_queue.get(block=True, timeout=0.1)
-            if curr_line == "\n":
-                continue
-            unshared_chars = count_unshared_characters(setting, curr_line)
-            if unshared_chars > 0 and unshared_chars < 4:
-                raise Exception(f"Failed to set {setting} to {val}. Make sure setting hasn't been changed to {curr_line.replace("\n", '')}.")
-            settings_list += curr_line
-        print("Finished adding settings to settings list")
-        raise Exception(f"Failed to set {setting} to {val}. Current list of available settings:{COLOR_RESET}\n{settings_list}")
+            line = output_queue.get(block=True, timeout=0.1)
+            if line and line != '\n':
+                settings_list.append(line.strip())
+    return settings_list
 
 
 def reset_settings(process, output_queue, zenoh_endpoint_addr=None):
-    settings_file = find_files_in_incomplete_directory("settings.yaml", motor_controller_project_directory, subdir='motor_controller')
+    settings_list = get_settings_list(process, output_queue)
+    settings_file = find_files_in_incomplete_directory(motor_controller_project_directory, "settings.yaml", subdir='motor-controller', silent=True)
     print(f"Using settings file: {settings_file}")
     with open(settings_file, 'r') as f:
         for line in f:
             if line.startswith("#") or not line.strip():
                 continue
-            split_line = line.replace(' ', '').split(":")
-            if len(split_line) == 2:
-                send_and_confirm_command(process, output_queue, split_line[0], split_line[1])
+
+            cleaned_line = line.replace(' ', '').replace('_', '-').replace('\n', '')
+            if '#' in cleaned_line:
+                cleaned_line = cleaned_line[:cleaned_line.index('#')]
+            split_line = cleaned_line.split(':')
+
+            if len(split_line) == 2 and split_line[0] and split_line[1]:
+                if split_line[1].lower() == 'false':
+                    split_line[1] = 0
+                elif split_line[1].lower() == 'true':
+                    split_line[1] = 1
+                if split_line[0] in settings_list:
+                    send_and_confirm_command(process, output_queue, split_line[0], split_line[1])
+                else:
+                    raise Exception(f"setting named {split_line[0]} from settings.yaml file not found in settings list. Current settings list:\n{COLOR_RESET}{settings_list}")
 
 
 def setup_settings(process, output_queue):    
+    process.stdin.write("settings reset\n")
     for command in CMDS.keys():
         val = CMDS[command][0]
         send_and_confirm_command(process, output_queue, command, val)
@@ -264,7 +281,7 @@ def _is_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
     except OSError:
         return False
 
-def _launch_rmw_zenohd_background(host: str = "127.0.0.1", port: int = 7447, extra_args=None):
+def _launch_rmw_zenohd_background(host: str, port: int, extra_args=None):
     """
     Start `ros2 run rmw_zenoh_cpp rmw_zenohd` in the background **only if**
     nothing is already listening on host:port. Returns the Popen handle if we
@@ -343,7 +360,6 @@ def check_valid_zenoh_endpoint(ip_str):
         return False
     return True
 
-
 def loop_connection_attempts(mode):
     if mode == "ble":
             process, output_queue = start_process_and_output_thread(ble_cmd, rust_project_directory)
@@ -352,17 +368,14 @@ def loop_connection_attempts(mode):
                 process, output_queue = start_process_and_output_thread(ble_cmd, rust_project_directory)
             print("Bluetooth connected successfully, adjusting settings")
     elif mode == "zenoh":
-    # Optional: tune these if you’re not using the defaults
-        zenoh_host = "10.8.10.59"
-        zenoh_port = 7447
         # 1) Ensure a zenoh router is running (idempotent: only starts if port is free)
-        rmw_proc = _launch_rmw_zenohd_background(zenoh_host, zenoh_port)
+        _launch_rmw_zenohd_background(ipv4, ZENOH_PORT)
 
         max_tries = 3
         process, output_queue = start_process_and_output_thread(zenoh_cmd, pfr_software_directory)
         tries = 1
         # 2) Tell the user to reset, right away (helps discovery)
-        print("If you don’t see the CLI connect, press RESET/power-cycle the motor controller.")
+        print("If you don't see the CLI connect, press RESET/power-cycle the motor controller.")
 
         while not connect_to_zenoh_cli(output_queue) and tries < max_tries + 1:
             tries += 1
@@ -373,83 +386,6 @@ def loop_connection_attempts(mode):
             # (Re)spawn your CLI process for the next attempt
             process, output_queue = start_process_and_output_thread(zenoh_cmd, pfr_software_directory)
     return process, output_queue
-
-
-def motor_controller_test_ready(process, output_queue):
-    """
-    Function to run the motor controller test configuration.
-    It will open a tmux session and run the test script.
-    """
-    for command in CMDS.keys():
-        process.stdin.write(f"settings {command}\n")
-        time.sleep(0.2)
-        while not output_queue.empty():
-            curr_line = output_queue.get(block=True, timeout=0.1).lower()
-            if CMDS[command][0] not in curr_line or CMDS[command][0] == 0 and "false" not in curr_line:
-                return False
-    return True
-
-def open_test_stack():
-    def is_tmux_pane_idle(pane_id):
-        """
-        Checks if the current tmux pane is running an idle shell.
-
-        Args:
-            pane_id (int): The pane index to check.
-        Returns:
-            bool: True if idle, False otherwise.
-        """
-        try:
-            pane_id = int(pane_id)  # Ensure pane_id is an integer
-            # Get the name of the current process in the active pane
-            result = subprocess.run(
-                ['tmux', 'list-panes', '-F', '#{pane_current_command}'],
-                capture_output=True,
-                text=True,
-                check=True
-            )
-            current_command = result.stdout.split('\n')[pane_id].strip()
-            # Check if the command is a common shell
-            if current_command == 'bash':
-                return True
-            else:
-                return False
-                
-        except subprocess.CalledProcessError as e:
-            print(f"Error running tmux command: {e}")
-            return False
-
-    if input("\nWould you like to test motor control stack? (y/n): ").strip().lower() == 'y':
-        run_script_command = f'cd {os.getcwd()} && python3 {TEST_STACK_SCRIPT}'
-        if "TMUX" not in os.environ:
-            session_name = "test_motor_session"
-            tmux_cmd = (
-                f'tmux new-session -d -s {session_name} "{run_script_command}; tmux kill-session -t {session_name}" && '
-                f'tmux attach-session -t {session_name}'
-            )
-            os.system(tmux_cmd)
-        else:
-            idle_pane_found = False
-            pane_count_cmd = ['tmux', 'display-message', '-p', '#{window_panes}']
-            pane_count_result = subprocess.run(pane_count_cmd, capture_output=True, text=True, check=True)
-            pane_count = int(pane_count_result.stdout.strip())
-            for idx in range(pane_count):
-                if is_tmux_pane_idle(idx):
-                    tmux_cmd = (
-                        f"tmux select-pane -t {idx} && "
-                        f"tmux send-keys -t {idx} '{run_script_command}' C-m"
-                    )
-                    idle_pane_found = True
-                    break
-            if not idle_pane_found:
-                print(f"{COLOR_YELLOW}Warning: Opening new window for test stack script.{COLOR_RESET}")
-                tmux_cmd = (
-                    f'tmux split-window -h "{run_script_command}"'
-                )
-            subprocess.run(tmux_cmd, shell=True)
-            print("Opening test stack script in a new tmux pane. Resuming monitoring: \n")
-    else:
-        print("Skipping motor control stack test, monitoring resuming: \n")
 
 
 def main(argv):
@@ -465,7 +401,7 @@ def main(argv):
             instant_exit = True
             raise Exception(f"Make sure that the serial monitor script is running to use ble connection mode in order to verify connection to device.")
 
-        print(f"=== {"Resetting" if reset_settings_flag else "Setting"} settings using {mode} CLI ===")
+        print(f"\n=== {"Resetting" if reset_settings_flag else "Setting"} settings using {mode} CLI ===")
 
         if not os.path.isdir(rust_project_directory):
             with open('r8/pfr-rust-nodes', 'w') as f:
@@ -477,16 +413,16 @@ def main(argv):
 
         if automate_commands:
             if reset_settings_flag:
-                ip_str = input("Enter new for zenoh endpoint address. [default: udp/10.50.50.1:7777]: ")
+                ip_str = input(f"Enter new endpoint for zenoh endpoint address. [default: {ROBOT_ZENOH_ENDPOINT}]: ")
                 if not check_valid_zenoh_endpoint(ip_str):
                     print(f"{COLOR_YELLOW}Warning: Invalid zenoh endpoint address. Using default.{COLOR_RESET}")
+                    ip_str = ROBOT_ZENOH_ENDPOINT
                 reset_settings(process, output_queue, ip_str)
             else:
                 setup_settings(process, output_queue)
             print("Settings adjusted successfully.")
         else:
             print("You can now enter commands in the CLI. Type 'exit' to quit.")
-            # clear queue before entering CLI commands
             while not output_queue.empty():
                 output_queue.get(block=True, timeout=0.1)
             while True:
@@ -495,26 +431,23 @@ def main(argv):
                     break
                 process.stdin.write(f"{command}\n")
                 process.stdin.flush()
-                time.sleep(0.2)
+                time.sleep(0.3)
+                # I know this is super shit, but it works
                 while not output_queue.empty():
-                    print(output_queue.get(block=True, timeout=0.1))
+                    while not output_queue.empty():
+                        print(output_queue.get(block=True, timeout=0.1))
 
     except KeyboardInterrupt:
         instant_exit = True
     except Exception as e:
         print(f"{COLOR_RED}\nERROR: {e}{COLOR_RESET}")
     finally:
-        # Only check test readiness if process is still running
-        if (
-            os.path.exists(BLUETOOTH_FILE_PATH)
-            and 'process' in locals()
-            and process.poll() is None
-            and motor_controller_test_ready(process, output_queue)
-        ):
-            write_bluetooth_status(test_settings_applied=1)
         if not instant_exit:
             input("\nPress enter to return: ")
         if 'process' in locals() and process.poll() is None:
+            if board_awaiting_wifi:
+                process.stdin.write('wifi-connect\n')
+                time.sleep(0.2)
             process.kill()
             print("\nProcess was terminated.")
         sys.exit()

@@ -102,7 +102,7 @@ def upload_project(port, project_path, build_env_name):
     print(f"--- Upload to {port} completed ---")
 
 
-def find_files_in_incomplete_directory(directory, filename, subdir=None, allow_empty=False):
+def find_files_in_incomplete_directory(directory, filename, subdir=None, allow_empty=False, silent=False):
     """
     Searches for a file(s) in a subdir of the specified directory and returns its full path if found.
 
@@ -129,7 +129,7 @@ def find_files_in_incomplete_directory(directory, filename, subdir=None, allow_e
     files_found = [None for _ in range(len(filenames))]
     
     for i in range(len(files_found)):
-        files_found[i] = find_files_in_incomplete_directory_helper(directory, filenames[i], subdirs)
+        files_found[i] = find_files_in_incomplete_directory_helper(directory, filenames[i], subdirs, silent)
         if files_found[i] is not None:
             directory = files_found[i][:files_found[i].index(subdirs[-1]) + len(subdirs[-1]) + 1] if subdirs != [] else directory
             subdirs = []
@@ -142,7 +142,7 @@ def find_files_in_incomplete_directory(directory, filename, subdir=None, allow_e
     return files_found if len(files_found) > 1 else files_found[0]
 
 
-def find_files_in_incomplete_directory_helper(directory, target_file, subdirs: list):
+def find_files_in_incomplete_directory_helper(directory, target_file, subdirs: list, silent):
     """
     Recursively searches for a file in a directory and its subdirectories.
 
@@ -157,8 +157,9 @@ def find_files_in_incomplete_directory_helper(directory, target_file, subdirs: l
     if subdirs != []:
         for root, dirs, _ in os.walk(directory):
             if subdirs[0] in dirs:
-                print(f"Found subdir '{subdirs[0]}' in '{root}'")
-                result = find_files_in_incomplete_directory_helper(os.path.join(root, subdirs[0]), target_file, subdirs[1:])
+                if not silent:
+                    print(f"Found subdir '{subdirs[0]}' in '{root}'")
+                result = find_files_in_incomplete_directory_helper(os.path.join(root, subdirs[0]), target_file, subdirs[1:], silent)
                 if result is not None:
                     return result
         return None

@@ -5,10 +5,9 @@ import subprocess
 from serial.tools import list_ports
 import sys
 import os
-from absl import flags
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from start_menu import BLE_AUTOMATION_SCRIPT, TEST_STACK_SCRIPT
+from start_menu import CLI_AUTOMATION_SCRIPT
 
 
 """
@@ -57,24 +56,18 @@ Google format) so every public function and module begins with a clear
 #   └─────────────────────────────┘
 # -------------------------------------------------------------------------
 
-flags.DEFINE_bool(
-    "currently_testing",
-    default=False,
-    help="Whether the user is currently testing the motor controller. Default is False."
-)   
-
 BRAIN_BOARD_IDENTIFIER = "FT232R"
 
 COLOR_RED = '\033[91m'
 COLOR_YELLOW = '\033[93m'
 COLOR_RESET = '\033[0m'
 
-BLUETOOTH_FILE_PATH = f"bluetooth_connected.txt"
+BLUETOOTH_FILE_PATH = "bluetooth_connected.txt"
 CONNECTION_TEST_COMMAND = "pong"
 WIFI_SETUP_MSG = "enter \'wifi-connect\'"
 MAC_ADDR_MSG = "mac addr:"
 READY_MESSAGE = "state: ready"
-
+TEST_STACK_LOCK_FILE = "test_active.txt"
 
 def run_command(command, cwd=None, capture_output=False, text=False):
     """
@@ -182,37 +175,6 @@ def write_bluetooth_status(bluetooth_connected=None, mac_addr=None):
         f.truncate(0)
         f.write(f"connection={bluetooth_connected}\nmac_addr={mac_addr}".replace("\x1b[0m", ""))
 
-
-def is_tmux_pane_idle(pane_id):
-    """
-    Checks if the current tmux pane is running an idle shell.
-
-    Args:
-        pane_id (int): The pane index to check.
-    Returns:
-        bool: True if idle, False otherwise.
-    """
-    try:
-        pane_id = int(pane_id)  # Ensure pane_id is an integer
-        # Get the name of the current process in the active pane
-        result = subprocess.run(
-            ['tmux', 'list-panes', '-F', '#{pane_current_command}'],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        current_command = result.stdout.split('\n')[pane_id].strip()
-        # Check if the command is a common shell
-        if current_command == 'bash':
-            return True
-        else:
-            return False
-            
-    except subprocess.CalledProcessError as e:
-        print(f"Error running tmux command: {e}")
-        return False
-
-
 def read_bluetooth_status():
     """
     Reads the Bluetooth connection status, MAC address, and test settings status from a file.
@@ -225,12 +187,13 @@ def read_bluetooth_status():
 
     with open(BLUETOOTH_FILE_PATH, "r") as f:
         content = f.read().replace(' ', '').split('\n')
-        if len(content) != 3:
+        if len(content) != 2:
             raise ValueError(f"Invalid content in Bluetooth file: {'\n'.join(content)}. Expected format: 'connection=<value>\nmac_addr=<value>'")
         bluetooth_connected = int(content[0].split("=")[-1].strip())
         mac_addr = content[1].split("=")[-1].strip() if len(content) >= 1 else ""
 
     return bluetooth_connected, mac_addr
+
 
 def monitor_serial_output_and_prompt_operations(port_name):
     """
@@ -268,16 +231,15 @@ def monitor_serial_output_and_prompt_operations(port_name):
                 # Check for specific messages and take actions
                 if WIFI_SETUP_MSG in line_lower:
                     if input("\nWould you like to automatically set up ESP32 settings and cerdentials in a new pane? (y/n): ").strip().lower() == 'y':
-                        signal_name = 'BLE adjusted'
                         if "TMUX" not in os.environ:
                             session_name = "bluetooth cli session"
                             tmux_cmd = (
-                                f'tmux new-session -d -s {session_name} "python3 {BLE_AUTOMATION_SCRIPT}; tmux kill-session -t {session_name}" && '
+                                f'tmux new-session -d -s {session_name} "python3 {CLI_AUTOMATION_SCRIPT} --board_awaiting_wifi; tmux kill-session -t {session_name}" && '
                                 f'tmux attach-session -t {session_name}'
                             )
                             os.system(tmux_cmd)
                         else:
-                            tmux_cmd = f'tmux split-window -v "python3 {BLE_AUTOMATION_SCRIPT}; exit"'
+                            tmux_cmd = f'tmux split-window -v "python3 {CLI_AUTOMATION_SCRIPT} --board_awaiting_wifi; exit"'
                             subprocess.run(tmux_cmd, shell=True)
 
                 # save in a file whether or not the serial monitor confirms that a bluetooth device was connected
@@ -308,7 +270,7 @@ if __name__ == "__main__":
         instant_exit = False
 
         # This file doubles as a lock file that shows this script is running
-        write_bluetooth_status(bluetooth_connected=0, mac_addr="")
+        write_bluetooth_status(bluetooth_connected=0)
 
         default_port = find_brain_board_port(BRAIN_BOARD_IDENTIFIER)
         

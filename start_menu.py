@@ -6,6 +6,7 @@ import subprocess
 import os
 
 # Adjust this path as needed
+SOFTWARE_REPO = '/r8/pfr-software'
 SCRIPTS_DIR = "scripts"
 
 # (Keeping your named constants; used by run_external_script logic)
@@ -14,18 +15,16 @@ FLASH_CODE_SCRIPT =  "flash_code_and_monitor.py"
 TEST_STACK_SCRIPT = "test_stack.py"
 BURN_ADDR_SCRIPT = "burn_addr.py"
 CLONE_AND_BUILD_SCRIPT = "clone_and_build.py"
-BLE_AUTOMATION_SCRIPT = "open_CLI_and_adjust_settings.py --mode=BLE"  # Adjusted to include mode
-ZENOH_AUTOMATION_SCRIPT = "open_CLI_and_adjust_settings.py --mode=ZENOH"  # Adjusted to include mode
-
-
+MANUAL_CLI_OPEN_SCRIPT = "open_CLI_connection_wrapper.py"   # Adjusted to include mode
+CLI_AUTOMATION_SCRIPT = "open_CLI_and_adjust_settings.py"
 
 # ---------------------------
 # Menu model (kept from your file, with small fixes)
 # ---------------------------
 
 initial_menu = [
-    "Flash and Test ESP32",  # index 0 -> dropdown (menu_items_1)
-    "Reassign sensor I2C address",         # index 1 -> direct action
+    "Flash firmware and setup motor controller",  # index 0 -> dropdown (menu_items_1)
+    "Reassign encoder I2C address",         # index 1 -> direct action
     "More",                             # index 2 -> dropdown (menu_items_2)
     "Exit"                                 # index 3 -> exit
 ]
@@ -40,8 +39,7 @@ menu_items_1 = [
 
 menu_items_2 = [
     "Open serial monitor for ESP32",
-    "Open Bluetooth CLI for Motor Controller",
-    "Open Zenoh CLI for Motor Controller"
+    "Open CLI for Motor Controller",
 ]
 
 # Dropdowns: which top index has which submenu list
@@ -63,8 +61,7 @@ submenu_scripts = {
     (0, 0): FLASH_CODE_SCRIPT,
     (0, 1): TEST_STACK_SCRIPT,
     (2, 0): SERIAL_MONITOR_SCRIPT,
-    (2, 1): BLE_AUTOMATION_SCRIPT,
-    (2, 2): ZENOH_AUTOMATION_SCRIPT
+    (2, 1): MANUAL_CLI_OPEN_SCRIPT
 }
 
 
@@ -109,25 +106,11 @@ def run_external_script(stdscr, script_name: str):
             )
             subprocess.run(tmux_cmd, shell=True)
 
-    elif script_name == TEST_STACK_SCRIPT or script_name == BLE_AUTOMATION_SCRIPT or script_name == ZENOH_AUTOMATION_SCRIPT:
+    elif script_name == TEST_STACK_SCRIPT or script_name == MANUAL_CLI_OPEN_SCRIPT:
         # two-pane tmux: left test, right serial monitor
-        script_call = 'python3 '
-        if script_name != TEST_STACK_SCRIPT:
-            response = input("Would you like to [S]et settings for testing [R]eset settings to robot defaults or [M]anually adjust: ").lower().strip()
-            while response not in ('s', 'r', 'm'):
-                response = input("Would you like to [S]et settings for testing [R]eset settings to robot defaults or [M]anually adjust: ").lower().strip()
-            if response == 's':
-                script_call += f'{script_name} --noreset_settings'
-            elif response == 'r':
-                script_call += f'{script_name} --reset_settings'
-            elif response == 'm':
-                script_call += f'{script_name} --noautomate_commands'
-
-        else:
-            script_call += script_name
         session_name = "serial_monitor_session"
         tmux_cmd = (
-            f'tmux new-session -d -s {session_name} "cd {SCRIPTS_DIR} && {script_call}; tmux kill-session -t {session_name}" && '
+            f'tmux new-session -d -s {session_name} "cd {SCRIPTS_DIR} && python3 {script_name}; tmux kill-session -t {session_name}" && '
             f'tmux split-window -h -t {session_name} "cd {SCRIPTS_DIR} && python3 {SERIAL_MONITOR_SCRIPT}; tmux kill-session -t {session_name}" && '
             f'tmux select-pane -t {session_name}:0.0 && '
             f'tmux attach-session -t {session_name}'
