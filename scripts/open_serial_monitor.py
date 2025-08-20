@@ -1,15 +1,3 @@
-import serial
-import time
-import json
-import subprocess
-from serial.tools import list_ports
-import sys
-import os
-import socket
-import signal
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from start_menu import CLI_AUTOMATION_SCRIPT
-
 """
 Opens a serial monitor for the ESP32-brain board.
 
@@ -56,24 +44,41 @@ Google format) so every public function and module begins with a clear
 #   └─────────────────────────────┘
 # -------------------------------------------------------------------------
 
-BRAIN_BOARD_IDENTIFIER = "FT232R"
+
+import serial
+import time
+import json
+import subprocess
+from serial.tools import list_ports
+import sys
+import os
+import socket
+import signal
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from start_menu import CLI_AUTOMATION_SCRIPT
+
+# ──────────────────────────────────────────────────────────────────────────
+# Constants
+# -------------------------------------------------------------------------
+
+BRAIN_BOARD_IDENTIFIER: str = "FT232R"
 
 COLOR_RED = '\033[91m'
 COLOR_YELLOW = '\033[93m'
 COLOR_RESET = '\033[0m'
 
-BLUETOOTH_FILE_PATH = "bluetooth_connected.txt"
-CONNECTION_TEST_COMMAND = "pong"
-WIFI_SETUP_MSG = "enter \'wifi-connect\'"
-MAC_ADDR_MSG = "mac addr:"
-READY_MESSAGE = "state: ready"
-TEST_STACK_LOCK_FILE = "test_active.txt"
+BLUETOOTH_FILE_PATH: str = "bluetooth_connected.txt"
+CONNECTION_TEST_COMMAND: str = "pong"
+WIFI_SETUP_MSG: str = "enter \'wifi-connect\'"
+MAC_ADDR_MSG: str = "mac addr:"
+READY_MESSAGE: str = "state: ready"
+TEST_STACK_LOCK_FILE: str = "test_active.txt"
 
-ZENOH_LOCATOR = 'tcp'
-ZENOH_PORT = '7447'
+ZENOH_LOCATOR: str = 'tcp'
+ZENOH_PORT: str = '7447'
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.connect(("8.8.8.8", 80))
-ipv4 = s.getsockname()[0]
+ipv4: str = s.getsockname()[0]
 
 
 def run_command(command, cwd=None, capture_output=False, text=False):

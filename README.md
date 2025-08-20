@@ -116,9 +116,10 @@ The PFR Testing Station provides an interactive menu and automation scripts for 
 ### Flashing and Testing 
 This is the hub for testing the motor controller on the wheel module at the testing station. The options are:
 1. **Upload and monitor code on ESP32**
-	- **USE:** This script will help you flash the correct firmware and setup the settings over the bluetooth CLI
+	- **USE:** This script will help you flash the correct firmware and setup the settings over the bluetooth CLI, getting your motor into ready state. Once it's in ready state, you can use the test stack script to test it.
 2. **Test Stack**
-	- **USE:** Skip to the last step of the previous script. Will use the trike launch file launch zenoh and run pfr_teleop node with a window with serial monitor. Useful if you have setup settings for testing already.
+	- **USE:** Will use the trike launch file and run pfr_teleop node with a window with serial monitor. If your pi isn't already in the ready state on the correct zenoh, you will need to reset it with the testing settings applied to use test stack successfully. **In this script, the wheel moves at a linear torque of ~8, but an angular torque of ~500**, so you should increase the angular increment when you use it. Afterwards, you will be prompted on whether you would like to change the settings to the robot standard, though it will still leave the wifi information blank since it varies for each robot.
+
 <span style="color:#d9534f;">⚠️WARNING: Do not run both linear and angular motors together. Both move the wheel forward/backward and one could break if they are working against each other. Test if each moves the wheel in both directions separately. ⚠️</span>
 
 ### Reassign Encoder I2C Address
@@ -130,11 +131,13 @@ Important functionality for setting up a motor controller board for testing with
 1. **Open serial monitor for ESP32**
 	- **USE:** Will open serial monitor with terminal window. This serial monitor will guide you through steps to get to testing the motor controller in the same way as the "Upload and monitor code on ESP32" script. Specfically, it will prompt you to setup settings using the motor controller CLI if it sees the wifi credentials are not set, and it will prompt you if you want to launch the testing script after the settings are set for testing or if the motor controller enter the ready state. 
 	- **DEBUGGING:** 
-	Entering ready state could happen with the wrong settings and/or zenoh endpoint, you have to keep track of that if you decide to test using this option.
+		- Entering ready state could happen with the wrong settings and/or zenoh endpoint, you have to keep track of that if you decide to test using this option.
+		- This script listens for certain outputs from the motor controller using hardcoded statements. If these change certain functionality could break, but they're all defined as constante at the top of open_serial_monitor.py, so they shouldn't be difficult to adjust.
 
 2. **Open CLI for Motor Controller**
 	- **USE:** Opens the CLI to adjust motor controller settings. You have 2 options to respond to before you open the CLI: bluetooth/zenoh, and if you want to set for testing/reset to robot/manually adjust settings. 
 	- **DEBUGGING:**
 		- <span style="color:#f7b731;">This script is not smart enough to tell you if you can or can't use BLE / Zenoh to connect at the current moment, you have to keep track of this yourself.</span> Wrong mode will either give an error or infinite loop of connection attempts if there are other motors with the same name being scanned for over bluetooth; regardless, killing the program is the most advisable option in the wrong mode. 
-		- Resetting the settings involves using the settings.yaml file within the motor_controller project of pfr-motor-controllers. If this filename gets updated pfr-motor-controllers should be recloned on the pi.
+		- Resetting the settings reads the settings.yaml file within the motor_controller project of pfr-motor-controllers. If this file is moved or renamed it will break.
+		- Similarly to the serial monitor, this script relies on many specific print statements (mostly in pfr-rust-nodes when using BLE) to know if it's connected. All the keywords used are defined as constants at the top of the file for easy editing in the event that you use to adapt it to a different version of pfr_ble_cli or the zenoh CLI.
 ---

@@ -1,3 +1,61 @@
+"""
+Automates motor controller settings adjustment via BLE or Zenoh CLI.
+
+This script connects to a motor controller using either BLE or Zenoh, then
+automatically sets or resets its configuration, or allows manual CLI interaction.
+It supports interactive command entry and can handle WiFi credential setup.
+
+Author: Rotate-8 Team • Date: 2025-08-20
+Project: PFR Testing Station • Language: Python 3.12
+
+Usage:
+    python3 open_CLI_and_adjust_settings.py --mode=ble --reset_settings=True --automate_commands=True
+
+** IMPORTANT *******************************************************
+All public functions and modules begin with a clear summary line,
+then a blank line, then extended detail (PEP 257 / Google format).
+********************************************************************
+"""
+# Code Structure Diagram
+# ────────────────────────────────────────────────────────────────────
+# ┌─────────────────────────────┐
+# │   Constants & Flags         │
+# └─────────────┬───────────────┘
+#               │
+#               ▼
+# ┌─────────────────────────────┐
+# │   Utility Functions         │
+# │ ──────────────────────────  │
+# │ read_until_message          │
+# │ count_unshared_characters   │
+# │ send_and_confirm_command    │
+# │ get_settings_list           │
+# │ reset_settings              │
+# │ setup_settings              │
+# │ isolate_mac_addr            │
+# │ check_equal_mac_addr        │
+# │ connect_to_bluetooth_cli    │
+# │ connect_to_zenoh_cli        │
+# │ start_process_and_output_thread │
+# │ check_valid_zenoh_endpoint  │
+# │ loop_connection_attempts    │
+# └─────────────┬───────────────┘
+#               │
+#               ▼
+# ┌─────────────────────────────┐
+# │   Main Program Flow         │
+# │ ──────────────────────────  │
+# │ main                        │
+# └─────────────┬───────────────┘
+#               │
+#               ▼
+# ┌─────────────────────────────┐
+# │   Script Entry Point        │
+# │ ──────────────────────────  │
+# │ if __name__ == "__main__"   │
+# └─────────────────────────────┘
+# ────────────────────────────────────────────────────────────────────
+
 import os
 import subprocess
 import sys
@@ -9,6 +67,12 @@ import threading
 from absl import app
 from absl import flags
 from flash_code_and_monitor import find_files_in_incomplete_directory
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from start_menu import SOFTWARE_REPO
+
+# ──────────────────────────────────────────────────────────────────────────
+# Constants & Flags
+# -------------------------------------------------------------------------
 
 flags.DEFINE_string(
     "mode",
@@ -31,26 +95,23 @@ flags.DEFINE_bool(
     help="Whether board is awaiting wifi credentials."
 )
 
-motor_controller_project_directory = "/r8/pfr-motor-controllers"
-
-rust_project_directory = "/r8/pfr-rust-nodes"
-ble_cmd = ["cargo", "run", "-p", "pfr_ble_cli"]
-
-pfr_software_directory = "/r8/pfr-software"
-zenoh_cmd = ["ros2", "run", "pfr_tools", "motor_controller_cli"]
+motor_controller_project_directory: str = "/r8/pfr-motor-controllers"
+rust_project_directory: str = "/r8/pfr-rust-nodes"
+ble_cmd: list[str] = ["cargo", "run", "-p", "pfr_ble_cli"]
+zenoh_cmd: list[str] = ["ros2", "run", "pfr_tools", "motor_controller_cli"]
 
 COLOR_RED = '\033[91m'
 COLOR_YELLOW = '\033[93m'
 COLOR_RESET = '\033[0m'
 
-ROBOT_ZENOH_ENDPOINT = 'udp/10.50.50.1:7777'
+ROBOT_ZENOH_ENDPOINT: str = 'udp/10.50.50.1:7777'
 
 
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.connect(("8.8.8.8", 80))
-ipv4 = s.getsockname()[0]
+ipv4: str = s.getsockname()[0]
 
-CMDS = {
+CMDS: dict[str, list[str]] = {
         "zenoh-endpoint": [f"{ZENOH_LOCATOR}/{ipv4}:{ZENOH_PORT}"],
         "wifi-ssid": ["twistedfields"],
         "wifi-pass": ["alwaysbekind"],
@@ -59,7 +120,23 @@ CMDS = {
         "steer-motor-control-type": ["torque"]
     }
 
-def read_until_message(q, messages, timeout, compare_func=None):
+# ──────────────────────────────────────────────────────────────────────────
+# Utility Functions
+# -------------------------------------------------------------------------
+
+def read_until_message(q: queue.Queue, messages: list[str] | str, timeout: float, compare_func=None) -> str | bool:
+    """
+    Reads lines from a queue until one contains all specified messages or timeout.
+
+    Args:
+        q: Queue to read from.
+        messages: List of strings or a single string to search for.
+        timeout: Timeout in seconds.
+        compare_func: Optional custom comparison function.
+
+    Returns:
+        The matching output line (lowercase) or False if not found.
+    """
     start_time = time.time()
     if type(messages) == str:
         messages = [messages]
@@ -92,7 +169,17 @@ def read_until_message(q, messages, timeout, compare_func=None):
     return False
 
 
-def count_unshared_characters(str1, str2):
+def count_unshared_characters(str1: str, str2: str) -> int:
+    """
+    Counts the number of characters that differ between two strings.
+
+    Args:
+        str1: First string.
+        str2: Second string.
+
+    Returns:
+        Number of differing characters.
+    """
     str1 = str1.replace("\n", "").replace(" ", "")
     str2 = str2.replace("\n", "").replace(" ", "")
     unshared_count = 0
@@ -102,14 +189,36 @@ def count_unshared_characters(str1, str2):
     return unshared_count + abs(len(str1) - len(str2))
 
 
-def send_and_confirm_command(process, output_queue, setting, val):
+def send_and_confirm_command(process: subprocess.Popen, output_queue: queue.Queue, setting: str, val: str) -> None:
+    """
+    Sends a settings command and confirms it was set.
+
+    Args:
+        process: The CLI process.
+        output_queue: Output queue from the process.
+        setting: Setting name.
+        val: Value to set.
+
+    Raises:
+        Exception if setting fails.
+    """
     print(f"Setting {setting} to {val}")
     process.stdin.write(f"settings {setting} {val}\n")
     if not read_until_message(output_queue, "set to", 2):
         raise Exception(f"Failed to set {setting} to {val}.")
 
 
-def get_settings_list(process, output_queue):
+def get_settings_list(process: subprocess.Popen, output_queue: queue.Queue) -> list[str]:
+    """
+    Retrieves the list of available settings from the CLI.
+
+    Args:
+        process: The CLI process.
+        output_queue: Output queue from the process.
+
+    Returns:
+        List of setting names.
+    """
     process.stdin.write("settings help\n")
     settings_list = []
     time.sleep(1.5)
@@ -122,7 +231,17 @@ def get_settings_list(process, output_queue):
     return settings_list
 
 
-def reset_settings(process, output_queue):
+def reset_settings(process: subprocess.Popen, output_queue: queue.Queue) -> None:
+    """
+    Resets motor controller settings using the settings.yaml file.
+
+    Args:
+        process: The CLI process.
+        output_queue: Output queue from the process.
+
+    Raises:
+        Exception if a setting is not found.
+    """
     settings_list = get_settings_list(process, output_queue)
     settings_file = find_files_in_incomplete_directory(motor_controller_project_directory, "settings.yaml", subdir='motor-controller', silent=True)
     print(f"Using settings file: {settings_file}")
@@ -150,24 +269,46 @@ def reset_settings(process, output_queue):
                     raise Exception(f"setting named {split_line[0]} from settings.yaml file not found in settings list. Current settings list:\n{COLOR_RESET}{settings_list}")
 
 
-def setup_settings(process, output_queue):    
+def setup_settings(process: subprocess.Popen, output_queue: queue.Queue) -> None:
+    """
+    Sets up motor controller settings using predefined CMDS.
+
+    Args:
+        process: The CLI process.
+        output_queue: Output queue from the process.
+    """
     print("Resetting settings")
     process.stdin.write("settings reset\n")
     for command in CMDS.keys():
         val = CMDS[command][0]
         send_and_confirm_command(process, output_queue, command, val)
 
-def isolate_mac_addr(mac_addr_line):
+
+def isolate_mac_addr(mac_addr_line: str) -> str:
     """
-    Isolate the script name from the full path.
+    Isolates the MAC address from a line.
+
+    Args:
+        mac_addr_line: Line containing MAC address.
+
+    Returns:
+        Isolated MAC address string.
     """
     if '|' in mac_addr_line:
         mac_addr_line = mac_addr_line.split('|')[-1]
     return mac_addr_line.strip()
 
-def check_equal_mac_addr(mac_addr1, mac_addr2):
+
+def check_equal_mac_addr(mac_addr1: str, mac_addr2: str) -> bool:
     """
-    Check if two MAC addresses are equal based of hex value.
+    Checks if two MAC addresses are equal by hex value.
+
+    Args:
+        mac_addr1: First MAC address.
+        mac_addr2: Second MAC address.
+
+    Returns:
+        True if equal, False otherwise.
     """
     mac_addr1 = isolate_mac_addr(mac_addr1).replace(' ', '').replace("\n", '').lower().split(":")
     mac_addr2 = isolate_mac_addr(mac_addr2).replace(' ', '').replace("\n", '').lower().split(":")
@@ -188,7 +329,17 @@ def check_equal_mac_addr(mac_addr1, mac_addr2):
     return True
 
 
-def connect_to_bluetooth_cli(process, output_queue):
+def connect_to_bluetooth_cli(process: subprocess.Popen, output_queue: queue.Queue) -> bool:
+    """
+    Connects to the motor controller CLI via BLE.
+
+    Args:
+        process: The CLI process.
+        output_queue: Output queue from the process.
+
+    Returns:
+        True if connection successful, False otherwise.
+    """
     FOUND_ADAPTERS_LINES = ["found", "ble adapter"]
     ADAPTER_PROMPT = "select an adapter to use"
     SCAN_MSG = "starting 3 second scan"
@@ -265,8 +416,17 @@ def connect_to_bluetooth_cli(process, output_queue):
             print("Timeout in motor connection, restarting...\n")
             return False # connection timeout usually means it was just the wrong one
         
-# here just so main() reads more nicely
-def connect_to_zenoh_cli(output_queue):
+
+def connect_to_zenoh_cli(output_queue: queue.Queue) -> bool:
+    """
+    Connects to the motor controller CLI via Zenoh.
+
+    Args:
+        output_queue: Output queue from the process.
+
+    Returns:
+        True if connection successful, False otherwise.
+    """
     if read_until_message(output_queue, "motor found", timeout=5):
         print("Connected using zenoh cli\n")
         return True
@@ -276,7 +436,17 @@ def connect_to_zenoh_cli(output_queue):
             
 # This is necessary because pfr_ble_cli has a phantom motor_0_ble that freezes it, 
 # so in order to make the timeout on the connection work you must thread output and quit
-def start_process_and_output_thread(command, cwd):
+def start_process_and_output_thread(command: list[str], cwd: str) -> tuple[subprocess.Popen, queue.Queue]:
+    """
+    Starts a subprocess and a thread to enqueue its output.
+
+    Args:
+        command: Command to run.
+        cwd: Working directory.
+
+    Returns:
+        Tuple of (process, output_queue).
+    """
     output_queue = queue.Queue()
 
     # This function will run in a separate thread
@@ -298,7 +468,17 @@ def start_process_and_output_thread(command, cwd):
 
     return process, output_queue
 
-def check_valid_zenoh_endpoint(ip_str):
+
+def check_valid_zenoh_endpoint(ip_str: str) -> bool:
+    """
+    Checks if a Zenoh endpoint string is valid.
+
+    Args:
+        ip_str: Endpoint string.
+
+    Returns:
+        True if valid, False otherwise.
+    """
     head_present = ""
     heads = ["tcp/", "udp/"]
     for head in heads:
@@ -320,7 +500,17 @@ def check_valid_zenoh_endpoint(ip_str):
         return False
     return True
 
-def loop_connection_attempts(mode):
+
+def loop_connection_attempts(mode: str) -> tuple[subprocess.Popen, queue.Queue]:
+    """
+    Attempts to connect to the motor controller CLI using the specified mode.
+
+    Args:
+        mode: 'ble' or 'zenoh'.
+
+    Returns:
+        Tuple of (process, output_queue).
+    """
     if mode == "ble":
             process, output_queue = start_process_and_output_thread(ble_cmd, rust_project_directory)
             # Keep retrying connection
@@ -332,7 +522,7 @@ def loop_connection_attempts(mode):
         _launch_rmw_zenohd_background(ipv4, ZENOH_PORT)
 
         max_tries = 3
-        process, output_queue = start_process_and_output_thread(zenoh_cmd, pfr_software_directory)
+        process, output_queue = start_process_and_output_thread(zenoh_cmd, SOFTWARE_REPO)
         tries = 1
         # 2) Tell the user to reset, right away (helps discovery)
         print("If you don't see the CLI connect, press RESET/power-cycle the motor controller.")
@@ -344,11 +534,24 @@ def loop_connection_attempts(mode):
             print(f"\nRetrying connection to motor controller CLI over Zenoh {tries - 1}/{max_tries - 1}...")
             print("Tip: press RESET/power-cycle the motor controller, then wait a few seconds.")
             # (Re)spawn your CLI process for the next attempt
-            process, output_queue = start_process_and_output_thread(zenoh_cmd, pfr_software_directory)
+            process, output_queue = start_process_and_output_thread(zenoh_cmd, SOFTWARE_REPO)
     return process, output_queue
 
 
-def main(argv):
+# ──────────────────────────────────────────────────────────────────────────
+# Main Program Flow
+# -------------------------------------------------------------------------
+
+def main(argv: list[str]) -> None:
+    """
+    Main entry point for CLI automation and manual adjustment.
+
+    Args:
+        argv: Command-line arguments.
+
+    Raises:
+        Exception if connection or settings adjustment fails.
+    """
     try:
         instant_exit = False
         # Access flag values
@@ -413,6 +616,10 @@ def main(argv):
                 time.sleep(0.2)
             process.kill()
         sys.exit()
+
+# ──────────────────────────────────────────────────────────────────────────
+# Script Entry Point
+# -------------------------------------------------------------------------
 
 if __name__ == "__main__":
     app.run(main)

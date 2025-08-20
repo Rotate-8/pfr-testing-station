@@ -51,7 +51,6 @@ Google format) so every public function and module begins with a clear
 import os
 import sys
 import subprocess
-import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from start_menu import CLI_AUTOMATION_SCRIPT
 
