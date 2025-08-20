@@ -7,8 +7,9 @@ COLOR_YELLOW = '\033[93m'
 COLOR_RESET = '\033[0m'
 
 if __name__ == '__main__':
-    instant_exit = False
     try:
+        instant_exit = False
+        print("Consider resetting motor controller now if using BLE CLI in order to save its mac address.")
         mode = input("Would you like to use [Z]enoh or [B]luetooth to open CLI: ").strip().lower()
         while mode[0] not in ("z", "b"):
             mode = input("Would you like to use [Z]enoh or [B]luetooth to open CLI: ").strip().lower()

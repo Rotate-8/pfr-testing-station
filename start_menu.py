@@ -23,7 +23,7 @@ CLI_AUTOMATION_SCRIPT = "open_CLI_and_adjust_settings.py"
 # ---------------------------
 
 initial_menu = [
-    "Flash firmware and setup motor controller",  # index 0 -> dropdown (menu_items_1)
+    "Setup and test motor controller",  # index 0 -> dropdown (menu_items_1)
     "Reassign encoder I2C address",         # index 1 -> direct action
     "More",                             # index 2 -> dropdown (menu_items_2)
     "Exit"                                 # index 3 -> exit
@@ -33,7 +33,7 @@ initial_menu = [
 # Define the menu options and their corresponding placeholder actions
 
 menu_items_1 = [
-    "Upload and monitor code on ESP32",
+    "Flash firmware and set settings for motor controller",
     "Test motor control stack"
 ]
 
@@ -110,7 +110,7 @@ def run_external_script(stdscr, script_name: str):
         # two-pane tmux: left test, right serial monitor
         session_name = "serial_monitor_session"
         tmux_cmd = (
-            f'tmux new-session -d -s {session_name} "cd {SCRIPTS_DIR} && python3 {script_name}; tmux kill-session -t {session_name}" && '
+            f'tmux new-session -d -s {session_name} "cd {SCRIPTS_DIR} && python3 {script_name}; tmux send-keys -t {session_name}:0.1 C-c" && '
             f'tmux split-window -h -t {session_name} "cd {SCRIPTS_DIR} && python3 {SERIAL_MONITOR_SCRIPT}; tmux kill-session -t {session_name}" && '
             f'tmux select-pane -t {session_name}:0.0 && '
             f'tmux attach-session -t {session_name}'

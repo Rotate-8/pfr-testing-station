@@ -1,7 +1,7 @@
 import os
 import subprocess
 import sys
-from open_serial_monitor import BLUETOOTH_FILE_PATH, read_bluetooth_status
+from open_serial_monitor import BLUETOOTH_FILE_PATH, read_bluetooth_status, _launch_rmw_zenohd_background, ZENOH_LOCATOR, ZENOH_PORT
 import time
 import socket
 import queue
@@ -49,8 +49,6 @@ ROBOT_ZENOH_ENDPOINT = 'udp/10.50.50.1:7777'
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.connect(("8.8.8.8", 80))
 ipv4 = s.getsockname()[0]
-ZENOH_LOCATOR = 'tcp'
-ZENOH_PORT = '7447'
 
 CMDS = {
         "zenoh-endpoint": [f"{ZENOH_LOCATOR}/{ipv4}:{ZENOH_PORT}"],
@@ -61,7 +59,7 @@ CMDS = {
         "steer-motor-control-type": ["torque"]
     }
 
-def read_until_message(q, messages, timeout, print_output=False, compare_func=None):
+def read_until_message(q, messages, timeout, compare_func=None):
     start_time = time.time()
     if type(messages) == str:
         messages = [messages]
@@ -71,8 +69,6 @@ def read_until_message(q, messages, timeout, print_output=False, compare_func=No
         messages_present = True # set to True until proven false
         try:
             output_line = q.get(block=True, timeout=0.1)
-            # if print_output:
-                # print(output_line)
 
             # Just give up if an error occurs
             if "[error]" in output_line.lower():
@@ -93,7 +89,6 @@ def read_until_message(q, messages, timeout, print_output=False, compare_func=No
         except queue.Empty:
             # No output was available in the queue within the timeout, so we continue the loop
             pass
-            
     return False
 
 
@@ -110,15 +105,15 @@ def count_unshared_characters(str1, str2):
 def send_and_confirm_command(process, output_queue, setting, val):
     print(f"Setting {setting} to {val}")
     process.stdin.write(f"settings {setting} {val}\n")
-    if not read_until_message(output_queue, "set to", 0.3, print_output=False):
+    if not read_until_message(output_queue, "set to", 2):
         raise Exception(f"Failed to set {setting} to {val}.")
 
 
 def get_settings_list(process, output_queue):
     process.stdin.write("settings help\n")
     settings_list = []
-    time.sleep(2)
-    # I know this is super shit, but it works
+    time.sleep(1.5)
+    # I know this is super shit, but it fixes the issue of something getting added while reading
     while not output_queue.empty():
         while not output_queue.empty():
             line = output_queue.get(block=True, timeout=0.1)
@@ -127,7 +122,7 @@ def get_settings_list(process, output_queue):
     return settings_list
 
 
-def reset_settings(process, output_queue, zenoh_endpoint_addr=None):
+def reset_settings(process, output_queue):
     settings_list = get_settings_list(process, output_queue)
     settings_file = find_files_in_incomplete_directory(motor_controller_project_directory, "settings.yaml", subdir='motor-controller', silent=True)
     print(f"Using settings file: {settings_file}")
@@ -146,6 +141,9 @@ def reset_settings(process, output_queue, zenoh_endpoint_addr=None):
                     split_line[1] = 0
                 elif split_line[1].lower() == 'true':
                     split_line[1] = 1
+                
+                if "zenoh" and "endpoint" in split_line[0] and not split_line[1].replace("'", "").replace('"', ''):
+                    split_line[1] = ROBOT_ZENOH_ENDPOINT
                 if split_line[0] in settings_list:
                     send_and_confirm_command(process, output_queue, split_line[0], split_line[1])
                 else:
@@ -153,6 +151,7 @@ def reset_settings(process, output_queue, zenoh_endpoint_addr=None):
 
 
 def setup_settings(process, output_queue):    
+    print("Resetting settings")
     process.stdin.write("settings reset\n")
     for command in CMDS.keys():
         val = CMDS[command][0]
@@ -195,8 +194,8 @@ def connect_to_bluetooth_cli(process, output_queue):
     SCAN_MSG = "starting 3 second scan"
     CONNECTED_MSG = "cli found"
 
-
     adapters_found_line = read_until_message(output_queue, FOUND_ADAPTERS_LINES, timeout=5)
+    print(f'adapters found line: {adapters_found_line}')
     if adapters_found_line:
         num_adapters = int(adapters_found_line[adapters_found_line.index(FOUND_ADAPTERS_LINES[0]) + len(FOUND_ADAPTERS_LINES[0]):adapters_found_line.index(FOUND_ADAPTERS_LINES[1])].strip())
         selected_adapter = None 
@@ -228,7 +227,7 @@ def connect_to_bluetooth_cli(process, output_queue):
         print("Connecting brain board...\n")
 
         # Give the program an extra second to do the scan
-        _, mac_addr, _ = read_bluetooth_status()
+        _, mac_addr = read_bluetooth_status()
         if mac_addr:
             print(f"Using mac address to connect to motor controller...")
             motor_controller_output = read_until_message(output_queue, mac_addr, 4, compare_func=check_equal_mac_addr)
@@ -249,13 +248,13 @@ def connect_to_bluetooth_cli(process, output_queue):
             process.terminate()
             raise Exception("Timeout in prompt to enter desired motor. Make sure pfr_ble_cli is unchanged.")
         
-        if read_until_message(output_queue, CONNECTED_MSG, 5, print_output=True):
+        if read_until_message(output_queue, CONNECTED_MSG, 5):
             time.sleep(1)
             print("Connected to motor controller CLI, verifying connection...\n")
             process.stdin.write(f"ping\n")
             read_until_message(output_queue, "pong", 1)
             time.sleep(0.5)
-            bluetooth_confirmed, _, _ = read_bluetooth_status()
+            bluetooth_confirmed, _ = read_bluetooth_status()
             if bluetooth_confirmed == 1:
                 print("Connection verified!\n")
                 return True
@@ -273,46 +272,7 @@ def connect_to_zenoh_cli(output_queue):
         return True
     else:
         return False
-
-def _is_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
-
-def _launch_rmw_zenohd_background(host: str, port: int, extra_args=None):
-    """
-    Start `ros2 run rmw_zenoh_cpp rmw_zenohd` in the background **only if**
-    nothing is already listening on host:port. Returns the Popen handle if we
-    started it, or None if something is already up (or we couldn't start it).
-    """
-    if _is_port_open(host, port):
-        print(f"Zenoh router already appears to be listening on {host}:{port}.")
-        return None
-
-    cmd = ["ros2", "run", "rmw_zenoh_cpp", "rmw_zenohd"]
-    if extra_args:
-        cmd += list(extra_args)
-
-    try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            preexec_fn=os.setsid  # new process group (Unix)
-        )
-        print("Started rmw_zenohd in the background.")
-        input("press RESET/power-cycle the motor controller so it re-announces over Zenoh. Press enter when done")
-        # Give the router a moment to bind its sockets
-        time.sleep(2.0)
-        return proc
-    except FileNotFoundError:
-        print("ERROR: 'ros2' not found. Ensure ROS 2 is installed and on your PATH.")
-    except Exception as e:
-        print(f"ERROR: failed to start rmw_zenohd: {e}")
-    return None
-
+    
             
 # This is necessary because pfr_ble_cli has a phantom motor_0_ble that freezes it, 
 # so in order to make the timeout on the connection work you must thread output and quit
@@ -413,11 +373,7 @@ def main(argv):
 
         if automate_commands:
             if reset_settings_flag:
-                ip_str = input(f"Enter new endpoint for zenoh endpoint address. [default: {ROBOT_ZENOH_ENDPOINT}]: ")
-                if not check_valid_zenoh_endpoint(ip_str):
-                    print(f"{COLOR_YELLOW}Warning: Invalid zenoh endpoint address. Using default.{COLOR_RESET}")
-                    ip_str = ROBOT_ZENOH_ENDPOINT
-                reset_settings(process, output_queue, ip_str)
+                reset_settings(process, output_queue)
             else:
                 setup_settings(process, output_queue)
             print("Settings adjusted successfully.")
@@ -431,11 +387,18 @@ def main(argv):
                     break
                 process.stdin.write(f"{command}\n")
                 process.stdin.flush()
-                time.sleep(0.3)
+                # wait for first message to appear
+                while output_queue.empty():
+                    pass
                 # I know this is super shit, but it works
                 while not output_queue.empty():
                     while not output_queue.empty():
-                        print(output_queue.get(block=True, timeout=0.1))
+                        line = output_queue.get(block=True, timeout=0.1)
+                        if line and line != '\n':
+                            print(line, end='')
+                print()
+                if command == "settings help":
+                    print("Use Ctrl+B follwed by [ to scroll up.")
 
     except KeyboardInterrupt:
         instant_exit = True
@@ -449,7 +412,6 @@ def main(argv):
                 process.stdin.write('wifi-connect\n')
                 time.sleep(0.2)
             process.kill()
-            print("\nProcess was terminated.")
         sys.exit()
 
 if __name__ == "__main__":

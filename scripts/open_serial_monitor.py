@@ -5,10 +5,10 @@ import subprocess
 from serial.tools import list_ports
 import sys
 import os
-
+import socket
+import signal
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from start_menu import CLI_AUTOMATION_SCRIPT
-
 
 """
 Opens a serial monitor for the ESP32-brain board.
@@ -68,6 +68,13 @@ WIFI_SETUP_MSG = "enter \'wifi-connect\'"
 MAC_ADDR_MSG = "mac addr:"
 READY_MESSAGE = "state: ready"
 TEST_STACK_LOCK_FILE = "test_active.txt"
+
+ZENOH_LOCATOR = 'tcp'
+ZENOH_PORT = '7447'
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.connect(("8.8.8.8", 80))
+ipv4 = s.getsockname()[0]
+
 
 def run_command(command, cwd=None, capture_output=False, text=False):
     """
@@ -175,6 +182,7 @@ def write_bluetooth_status(bluetooth_connected=None, mac_addr=None):
         f.truncate(0)
         f.write(f"connection={bluetooth_connected}\nmac_addr={mac_addr}".replace("\x1b[0m", ""))
 
+
 def read_bluetooth_status():
     """
     Reads the Bluetooth connection status, MAC address, and test settings status from a file.
@@ -195,6 +203,45 @@ def read_bluetooth_status():
     return bluetooth_connected, mac_addr
 
 
+def _is_port_open(host: str, port: int, timeout: float = 0.5) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+def _launch_rmw_zenohd_background(host: str, port: int, extra_args=None):
+    """
+    Start `ros2 run rmw_zenoh_cpp rmw_zenohd` in the background **only if**
+    nothing is already listening on host:port. Returns the Popen handle if we
+    started it, or None if something is already up (or we couldn't start it).
+    """
+    if _is_port_open(host, port):
+        print(f"Zenoh already running...")
+        return None
+
+    cmd = ["ros2", "run", "rmw_zenoh_cpp", "rmw_zenohd"]
+    if extra_args:
+        cmd += list(extra_args)
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            preexec_fn=os.setsid  # new process group (Unix)
+        )
+        print("Started rmw_zenohd in the background.")
+        # Give the router a moment to bind its sockets
+        time.sleep(2.0)
+        return proc
+    except FileNotFoundError:
+        print("ERROR: 'ros2' not found. Ensure ROS 2 is installed and on your PATH.")
+    except Exception as e:
+        print(f"ERROR: failed to start rmw_zenohd: {e}")
+    return None
+
+
 def monitor_serial_output_and_prompt_operations(port_name):
     """
     Continuously reads and prints serial output from the specified port.
@@ -205,6 +252,7 @@ def monitor_serial_output_and_prompt_operations(port_name):
         port_name (str): The serial port name (e.g., '/dev/ttyUSB0' or 'COMx').
     """
     try:
+        _launch_rmw_zenohd_background(ZENOH_PORT, ipv4)
         bluetooth_connected = 0
         baud_rate = 115200
         # Open the serial port
@@ -213,7 +261,6 @@ def monitor_serial_output_and_prompt_operations(port_name):
         ser = serial.Serial(port_name, baudrate=baud_rate, timeout=1)
         print(f"Successfully connected to {port_name} serial monitor at {baud_rate} baud.")
 
-        signal_listener = None
         # Clear any initial garbage data that might be in the buffer
         time.sleep(0.1)
         ser.flushInput()
@@ -290,7 +337,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"{COLOR_RED}ERROR:{e}{COLOR_RESET}")
     finally:
-        os.remove(BLUETOOTH_FILE_PATH) if os.path.isfile(BLUETOOTH_FILE_PATH) else None
+        os.remove(BLUETOOTH_FILE_PATH)
         if not instant_exit:
             input("\nPress enter to return to main menu: ")
         sys.exit()

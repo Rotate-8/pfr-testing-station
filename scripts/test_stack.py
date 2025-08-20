@@ -51,18 +51,13 @@ Google format) so every public function and module begins with a clear
 import os
 import sys
 import subprocess
-from absl import flags
+import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from start_menu import ZENOH_AUTOMATION_SCRIPT
+from start_menu import CLI_AUTOMATION_SCRIPT
 
 # ──────────────────────────────────────────────────────────────────────────
 # Constants & configuration
 # -------------------------------------------------------------------------
-flags.DEFINE_bool(
-    "reset_prompt",
-    default=True,
-    help="Whether to prompt user to reset board."
-)
 
 SOFTWARE_REPO = '/r8/pfr-software'
 BRINGUP_CMD  = 'ros2 launch pfr_launch trike-without-teleop-bringup.launch.yaml'
@@ -90,40 +85,31 @@ def main():
     try:
         instant_exit = False
 
-        reset_prompt = flags.FLAGS.reset_prompt
-
         if not os.path.exists(SOFTWARE_REPO):
             raise Exception(f"Software repository not found at {SOFTWARE_REPO}. Please clone the repository first.")
         
         # 1) source setup script
         subprocess.run(
-            ['source', 'setup/install.bash'],
+            'source install/setup.bash', # The command as a single string
             check=True,
-            capture_output=True,
+            capture_output=False,
             text=True,
+            shell=True,
+            executable='/bin/bash',
             cwd=SOFTWARE_REPO
         )
 
-        # 2) turn off zenoh so it can be launched by setup script
-        print("Turning of zenoh endpoint")
-        subprocess.run(
-        ['sudo', '/usr/bin/systemctl', 'stop', 'zenohd.service'],
-        check=True,
-        capture_output=True,
-        text=True)
-
-        # 3) launch bring-up in background (no output)
+        # 2) launch bring-up in background (no output)
         print("Running ROS2 bring-up in background...")
         subprocess.Popen([
             'bash', '-i', '-c',
             f'exec {BRINGUP_CMD}'
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-        # 4) prompt user
-        if reset_prompt:
-            input("\nBring-up launched in the background.  Please click the reset button on the microcontroller then press Enter to continue.")
+        # 3) prompt user
+        input("\nBring-up launched in the background.  Reset the motor controller if not already connected to correct zenoh:")
 
-        # 5) run teleop in foreground
+        # 4) run teleop in foreground
         print("Running pfr_teleop in this terminal…")
         try:
             proc = subprocess.Popen([
@@ -136,10 +122,10 @@ def main():
             proc.terminate()
             proc.wait()
 
-        # 6) prompt user as to whether they want to reset motor controller settings
-        if input("\nWould you like to change motor controller settings back to standard? (y/n): ").lower().strip() == "y":
+        # 5) prompt user as to whether they want to reset motor controller settings
+        if input("\nWould you like to change motor controller settings back to robot default? (y/n): ").lower().strip() == "y":
             subprocess.run(
-            ['python3', ZENOH_AUTOMATION_SCRIPT, '--mode=zenoh', '--reset_settings'],
+            ['python3', CLI_AUTOMATION_SCRIPT, '--mode=zenoh', '--reset_settings'],
             check=True,
             capture_output=False,
             )
@@ -150,11 +136,6 @@ def main():
     except Exception as e:
         print(f"{COLOR_RED}ERROR: {e}{COLOR_RESET}")
     finally:
-        subprocess.run(
-        ['sudo', '/usr/bin/systemctl', 'start', 'zenohd.service'],
-        check=True,
-        capture_output=True,
-        text=True)
         if not instant_exit:
             input("\nPress enter to return to main menu: ")
         sys.exit()

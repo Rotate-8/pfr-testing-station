@@ -116,7 +116,7 @@ The PFR Testing Station provides an interactive menu and automation scripts for 
 ### Flashing and Testing 
 This is the hub for testing the motor controller on the wheel module at the testing station. The options are:
 1. **Upload and monitor code on ESP32**
-	- **USE:** After flashing the firmware onto the brain board, this will guide you through the complete setup from a blank board to having tested and setup settings for the actual robot. Will make it extremely easy to test from completely blank board.
+	- **USE:** This script will help you flash the correct firmware and setup the settings over the bluetooth CLI
 2. **Test Stack**
 	- **USE:** Skip to the last step of the previous script. Will use the trike launch file launch zenoh and run pfr_teleop node with a window with serial monitor. Useful if you have setup settings for testing already.
 <span style="color:#d9534f;">⚠️WARNING: Do not run both linear and angular motors together. Both move the wheel forward/backward and one could break if they are working against each other. Test if each moves the wheel in both directions separately. ⚠️</span>
